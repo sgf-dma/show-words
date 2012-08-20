@@ -87,21 +87,6 @@ indByPhrase ls y    = fst $ runBState indByPhrase' indBase
     indByPhrase' :: BState Index (Maybe Index)
     indByPhrase'    = foldrM (\x z -> BState $ indOf y x z) Nothing ls
 
-
--- Choose word from string by index.
-phraseByInd1 :: String -> Index -> String
-phraseByInd1 ls i   = fst $ runBState phraseByInd1' indBase
-  where
-    phraseByInd1' :: BState Index String
-    phraseByInd1'   = foldrM (\x -> BState . onlyInd1 phrSep i x) "" ls
-
--- Choose all other words from string with index not equal to specified one.
-phraseByNotInd1 :: String -> Index -> String
-phraseByNotInd1 ls i = fst $ runBState phraseByNotInd1' indBase
-  where
-    phraseByNotInd1' :: BState Index String
-    phraseByNotInd1' = foldrM (\x -> BState . notInd1 phrSep i x) "" ls
-
 -- END Indexed lists }}}
 -- Folding functions for use in State or Backward State monads. {{{
 
@@ -122,53 +107,5 @@ indOf :: (Eq a) => a -> a -> Maybe Index -> Index -> (Maybe Index, Index)
 indOf y x z         = \s -> let z' = if x == y then Just s else z
                             in  (z', s + 1)
 
-
--- Add element x to the accumulator z only if elememt's index s equals to i.
--- Elements are separated by 'sep'.
-onlyInd1 :: (Eq a) => a -> Index -> a -> [a] -> Index -> ([a], Index)
-onlyInd1 sep i x z  = \s -> if x == sep
-                              then (z, s + 1)
-                              else if s == i then (x : z, s) else (z, s)
-
--- Add element x to the accumulator z only if element's index s does _not_
--- equal to i. Elements are seprated by sep. Several elements in the result
--- is possible.
--- Check 'not (null z)' requires remaining bind chain to be computed, so it
--- should not block new state computation, otherwise Backward State monad will
--- hang.
--- I should decide to add separator by checking previous state, but not next
--- one. Otherwise, check 'not (null z)' will be always true (it will not with
--- left fold, but left fold reverses list).
-notInd1 :: (Eq a) => a -> Index -> a -> [a] -> Index -> ([a], Index)
-notInd1 sep i x z   = \s ->
-                        if x == sep
-                          then let s' = s + 1
-                                   z' = if s /= i && not (null z)
-                                          then sep : z else z
-                               in  (z', s')
-                          else if s /= i then (x : z, s)  else (z, s)
-
 -- END Several folding functions for use in State or Backward State monads. }}}
-
--- Remove leading and trailing spaces.
-rmSurrSpaces :: String -> String
-rmSurrSpaces ls     =  fst $ runBState (fst $ runState  (withoutSpaces ls)
-                                                        indBase)
-                                       indBase
-  where
-    -- This is function for use with State or BState wrapper, which skips all
-    -- list elements xI from monad result (fold accumulator) until monad state
-    -- is initial State.
-    skipInitSt :: Char -> String -> Int -> (String, Int)
-    skipInitSt x z  =  \s ->
-                        if s == indBase
-                          then if x == ' '
-                                 then   (z, s)
-                                 else   (x : z, s + 1)
-                          else          (x : z, s)
-    -- First use State monad to skip trailing spaces, then use Backward
-    -- State monad to skip leading spaces from the list.
-    withoutSpaces :: String -> State Int (BState Int String)
-    withoutSpaces ls = foldrM (\x -> State . skipInitSt x) "" ls >>=
-                       return . foldrM (\x -> BState . skipInitSt x) ""
 
