@@ -5,6 +5,7 @@ import Data.List                -- For groupBy
 import Data.Char                -- For isSpace
 import Data.Maybe               -- For fromJust
 import Control.Monad
+import Control.Applicative
 import Control.Monad.State      -- For State monad.
 
 type Index          =  Int
@@ -35,64 +36,14 @@ splitBy s           = foldr go [[]]
   where
     go x zl@(z : zs) = if x == s then [] : zl else (x : z) : zs
 
--- FIXME: Use isSapce instead of check for ' '.
--- FIXME: Use dropWhile and dropWhileEnd instead of rmSurrSpaces.
--- FIXME: First split list by separator (omitting separator), then parse it
--- with State monad. I.e. group elements at the level lower, then State monads
--- works at.
-main                =  do
-    (file : args) <- getArgs
-    handle <- openFile file ReadMode
-    contents <- hGetContents handle
-    sequence $ map putStrLn $ lines contents
---getContents >>= sequence . map putStrLn . lines
-
--- Phrase separator.
-phrSep              = '-'
--- Start index.
-indBase             = 1
-
--- Split each string to phrases by phrSep character (omitting separator
--- itself) and remove leading and trailing spaces from each phrase (phrase may
--- contain spaces).
-splitToPhrases :: [String] -> [[String]]
-splitToPhrases      = map splitToPhrases'
-  where
-    splitToPhrases' :: String -> [String]
-    splitToPhrases' = map dropSpaces . splitBy phrSep
-    dropSpaces :: String -> String
-    dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
-
--- Indexed lists {{{
-
--- Choose phrase from list by index.
-phraseByInd :: [String] -> Index -> [String]
-phraseByInd ls i    = fst $ runBState phraseByInd' indBase
-  where
-    phraseByInd' :: BState Index [String]
-    phraseByInd'    = foldrM (\x -> BState . onlyInd i x) [] ls
-
--- Complement phraseByInd. Choose all phrases from list with index not equal
--- to specified one.
-phraseByNotInd :: [String] -> Index -> [String]
-phraseByNotInd ls i = fst $ runBState phraseByNotInd' indBase
-  where
-    phraseByNotInd' :: BState Index [String]
-    phraseByNotInd' = foldrM (\x -> BState . notInd i x) [] ls
-
--- Reverse of phraseByInd. Determine index by phrase.
-indByPhrase :: [String] -> String -> Maybe Index
-indByPhrase ls y    = fst $ runBState indByPhrase' indBase
-  where
-    indByPhrase' :: BState Index (Maybe Index)
-    indByPhrase'    = foldrM (\x z -> BState $ indOf y x z) Nothing ls
-
--- END Indexed lists }}}
 -- Folding functions for use in State or Backward State monads. {{{
 
 -- Add list element x to the accumulator z only if its index s equals to i.
 onlyInd :: Index -> a -> [a] -> Index -> ([a], Index)
 onlyInd i x z       = \s -> let z' = if s == i then x : z else z
+                            in  (z', s + 1)
+onlyInd' :: Index -> a -> Maybe a -> Index -> (Maybe a, Index)
+onlyInd' i x z      = \s -> let z' = if s == i then Just x else z
                             in  (z', s + 1)
 
 -- Complement to onlyInd. Add each list elements x to accumulator z if its
@@ -106,6 +57,84 @@ notInd i x z        = \s -> let z' = if s /= i then x : z else z
 indOf :: (Eq a) => a -> a -> Maybe Index -> Index -> (Maybe Index, Index)
 indOf y x z         = \s -> let z' = if x == y then Just s else z
                             in  (z', s + 1)
+indOf' :: (Eq a) => a -> a -> [Index] -> Index -> ([Index], Index)
+indOf' y x z        = \s -> let z' = if x == y then s : z else z
+                            in  (z', s + 1)
 
--- END Several folding functions for use in State or Backward State monads. }}}
+-- END Folding functions for use in State or Backward State monads. }}}
+-- Indexed list. {{{
+
+elemByInd :: Index -> [a] -> BState Index (Maybe a)
+elemByInd i         = foldrM (\x -> BState . onlyInd' i x) Nothing
+
+elemsByNotInd :: Index -> [a] -> BState Index [a]
+elemsByNotInd i     = foldrM (\x -> BState . notInd i x) []
+
+indsByElem :: (Eq a) => a -> [a] -> BState Index [Index]
+indsByElem y        = foldrM (\x -> BState . indOf' y x) []
+
+-- END Indexed list. }}}
+
+
+-- Phrase separator.
+phrSep              = '-'
+-- Start index.
+indBase             = 1
+
+-- FIXME: Write another generic layer of elemByInd, elemByNotInd and
+-- indByElem to shorten these phraseX functions ?
+-- Choose phrase from list by index.
+phraseByInd :: [String] -> Index -> [String]
+phraseByInd ls i    = fst $ runBState phraseByInd' indBase
+  where
+    phraseByInd' :: BState Index [String]
+    phraseByInd'    = foldrM (\x -> BState . onlyInd i x) [] ls
+phraseByInd' :: [String] -> Index -> Maybe String
+phraseByInd' ls i    = fst $ runBState (elemByInd i ls) indBase
+
+
+-- Complement phraseByInd. Choose all phrases from list with index not equal
+-- to specified one.
+phraseByNotInd :: [String] -> Index -> [String]
+phraseByNotInd ls i = fst $ runBState phraseByNotInd' indBase
+  where
+    phraseByNotInd' :: BState Index [String]
+    phraseByNotInd' = foldrM (\x -> BState . notInd i x) [] ls
+phrasesByNotInd' :: [String] -> Index -> [String]
+phrasesByNotInd' ls i = fst $ runBState (elemsByNotInd i ls) indBase
+
+-- Reverse of phraseByInd. Determine index by phrase.
+indByPhrase :: [String] -> String -> Maybe Index
+indByPhrase ls y    = fst $ runBState indByPhrase' indBase
+  where
+    indByPhrase' :: BState Index (Maybe Index)
+    indByPhrase'    = foldrM (\x z -> BState $ indOf y x z) Nothing ls
+indByPhrase' :: [String] -> String -> [Index]
+indByPhrase' ls y   = fst $ runBState (indsByElem y ls) indBase
+
+-- Split each string to phrases by phrSep character (omitting separator
+-- itself) and remove leading and trailing spaces from each phrase (phrase may
+-- contain spaces).
+splitToPhrases :: [String] -> [[String]]
+splitToPhrases      = map splitToPhrases'
+  where
+    splitToPhrases' :: String -> [String]
+    splitToPhrases' = map dropSpaces . splitBy phrSep
+    dropSpaces :: String -> String
+    dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
+
+createOrder :: [String] -> [String] -> [Maybe Index]
+createOrder refs    = map (indByPhrase refs)
+
+-- FIXME: Use isSapce instead of check for ' '.
+-- FIXME: Use dropWhile and dropWhileEnd instead of rmSurrSpaces.
+-- FIXME: First split list by separator (omitting separator), then parse it
+-- with State monad. I.e. group elements at the level lower, then State monads
+-- works at.
+main                =  do
+    (file : args) <- getArgs
+    handle <- openFile file ReadMode
+    contents <- hGetContents handle
+    sequence $ map putStrLn $ lines contents
+--getContents >>= sequence . map putStrLn . lines
 
