@@ -1,8 +1,8 @@
 
-import System.IO
-import System.Environment
-import Control.Monad
-import Control.Monad.State
+import System.IO                -- For hX
+import System.Environment       -- For getArgs
+import Control.Monad            -- ?
+import Control.Monad.State      -- For State monad.
 
 type Index          =  Int
 newtype BState s a  =  BState {runBState :: (s -> (a, s))}
@@ -31,7 +31,7 @@ main                =  do
 
 --fieldNameToNum
 seqElems :: String -> [String]
-seqElems ls         =  map (elemByInd ls) [2,1,3]
+seqElems ls         =  map (wordByInd ls) [2,1,3]
 
     --map (elemByInd ls) transp
 
@@ -40,37 +40,6 @@ indBase             = 1
 -- Word separator.
 wordSep             = '-'
 
--- Select element (separated by dash) with specific index from list.  Element
--- index counts from 1.
-elemByInd :: String -> Int -> String
-elemByInd ls i      =  fst $ runBState (foldrM elemByInd' "" ls) indBase
-  where
-    -- Increase state at '-' separator. Output element (all between
-    -- separators) with index i.
-    -- FIXME: Use Reader monad? Instead of checking state?
-    elemByInd' :: Char -> String -> BState Int String
-    elemByInd' x z  =  BState $ \s ->
-                        if x == '-'
-                          then (z, s + 1)
-                          else if s == i then (x : z, s) else (z, s)
-
-
--- Select element (separated by dash) with specific index from list.  Element
--- index counts from 1.
-elemByIndNot :: String -> Int -> String
-elemByIndNot ls i   =  fst $ runBState (foldrM elemByInd' "" ls) indBase
-  where
-    -- Increase state at '-' separator. Output element (all between
-    -- separators) with index i.
-    -- FIXME: Use Reader monad? Instead of checking state?
-    elemByInd' :: Char -> String -> BState Int String
-    elemByInd' x z  =  BState $ \s ->
-                        if x == '-'
-                          then let s' = s + 1
-                               in  if s' /= i then ('-' : z, s') else (z, s')
-                          else     if s  /= i then (x   : z, s)  else (z, s)
-
-
 -- Choose word from string by index.
 wordByInd :: String -> Index -> String
 wordByInd ls i      = fst $ runBState wordByInd' indBase
@@ -78,22 +47,14 @@ wordByInd ls i      = fst $ runBState wordByInd' indBase
     wordByInd' :: BState Index String
     wordByInd'      = foldrM (\x -> BState . onlyInd wordSep i x) "" ls
 
--- Choose all other words with index not equal to specified one from string.
+-- Choose all other words from string with index not equal to specified one.
 wordByNotInd :: String -> Index -> String
 wordByNotInd ls i   = fst $ runBState wordByNotInd' indBase
   where
     wordByNotInd' :: BState Index String
     wordByNotInd'   = foldrM (\x -> BState . notInd wordSep i x) "" ls
 
-wordByNotInd1 :: String -> Index -> String
-wordByNotInd1 ls i  = fst $ runState wordByNotInd' indBase
-  where
-    wordByNotInd' :: State Index String
-    wordByNotInd'   = foldlM (\z x -> State $ notInd wordSep i x z) "" ls
-
-
--- Here are several folding functions for use in State or Backward State
--- monads.
+-- Several folding functions for use in State or Backward State monads. {{{
 
 -- Add element x to the accumulator z only if elememt's index s equals to i.
 -- Elements are separated by 'sep'.
@@ -119,15 +80,7 @@ notInd sep i x z    = \s ->
                                in  (z', s')
                           else if s /= i then (x : z, s)  else (z, s)
 
-{-
-notInd :: (Eq a) => a -> Index -> a -> [a] -> Index -> ([a], Index)
-notInd sep i x z    = \s ->
-                        if x == sep
-                          then let s' = s + 1
-                               in  if s' /= i then (sep : z, s') else (z, s')
-                          else     if s  /= i then (x   : z, s)  else (z, s)
--}
-
+-- END Several folding functions for use in State or Backward State monads. }}}
 
 -- Remove leading and trailing spaces.
 rmSurrSpaces :: String -> String
@@ -150,46 +103,4 @@ rmSurrSpaces ls     =  fst $ runBState (fst $ runState  (withoutSpaces ls)
     withoutSpaces :: String -> State Int (BState Int String)
     withoutSpaces ls = foldrM (\x -> State . skipInitSt x) "" ls >>=
                        return . foldrM (\x -> BState . skipInitSt x) ""
-
-{-
--- This variant includes _following_ dash in result, because state is still i
--- on the following dash as well. E.g. (first state is 1)
---      "ab-cd-.."
--- then x1='a', x2='b', x3='-' - state is 1, but after x3 it will be 2.
-selectElem1 :: Int -> (String, Int)
-selectElem1 i       =
-    runBState   (foldrM (\x z ->
-                            BState (\s ->
-                                (if s == i   then x : z   else z
-                                ,if x == '-' then (s + 1) else s)
-                            )
-                        )
-                        ""
-                        "ab-cd-ef"
-                ) 1
-
---rmSurrSpaces1 :: String -> String
-rmSurrSpaces1 ls    =  runBState (foldrM elemByInd "" ls) 0
-  where
-    elemByInd :: Char -> String -> BState Int String
-    elemByInd x z
-                    =  BState $ \s ->
-                        if s == 0
-                          then if x == ' '
-                                 then   (z, s)
-                                 else   (x : z, s + 1)
-                          else          (x : z, s)
-
---rmSurrSpaces2 :: String -> String
-rmSurrSpaces2 ls    =  runState (foldrM elemByInd "" ls) 0
-  where
-    elemByInd :: Char -> String -> State Int String
-    elemByInd x z
-                    =  State $ \s ->
-                        if s == 0
-                          then if x == ' '
-                                 then   (z, s)
-                                 else   (x : z, s + 1)
-                          else          (x : z, s)
--}
 
