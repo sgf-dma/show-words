@@ -84,8 +84,8 @@ phraseByInd ls i    = fst $ runBState (elemsByInds [i] ls) indBase
 
 -- Complement phraseByInd. Choose all phrases from list with index not equal
 -- to specified one.
-phrasesByNotInd :: [String] -> Index -> [String]
-phrasesByNotInd ls i = fst $ runBState (elemsByNotInds [i] ls) indBase
+phrasesByNotInds :: [String] -> [Index] -> [String]
+phrasesByNotInds ls js = fst $ runBState (elemsByNotInds js ls) indBase
 
 -- Reverse of phraseByInd. Determine index by phrase.
 indsByPhrase :: [String] -> String -> [Index]
@@ -108,15 +108,29 @@ createOrder xs refs = xs >>= indsByPhrase refs
 
 reorderPhrases :: [String] -> [String] -> [[String]]
 reorderPhrases colNames (refs : ls)
-                    = map (orderPhrases . splitToPhrases) ls
+                    -- = map orderLine ls
+                    -- = map (runReader orderLine'' . splitToPhrases) ls
+                    = map (orderLine''' . splitToPhrases) ls
   where
-    phrOrder        :: [Index]
+    phrOrder :: [Index]
     phrOrder        = colNames >>= indsByPhrase refs'
-    --phrOrder        = concat $ map (indsByPhrase refs') colNames
       where refs'   = splitToPhrases refs
+    orderLine :: String -> [String]
+    orderLine l     = let ps = splitToPhrases l
+                      --in  (phrasesByNotInds ps phrOrder) ++ (phrOrder >>= phraseByInd ps)
+                      in  (orderPhrases ps) ++ (otherPhrases ps)
+    orderLine' :: String -> [String]
+    orderLine' l    = let ps = splitToPhrases l
+                      in  runReader (liftM2 (++) (Reader orderPhrases) (Reader otherPhrases)) ps
+    orderLine'' :: Reader [String] [String]
+    orderLine''     = liftM2 (++) (Reader orderPhrases) (Reader otherPhrases)
+    orderLine''' :: [String] -> [String]
+    orderLine'''    = (++) <$> orderPhrases <*> otherPhrases
     orderPhrases :: [String] -> [String]
-    orderPhrases ls = phrOrder >>= phraseByInd ls
-    --orderPhrases ls = concat $ map (phraseByInd ls) phrOrder
+    orderPhrases ps = phrOrder >>= phraseByInd ps
+    --orderPhrases ps = concat $ map (phraseByInd ps) phrOrder
+    otherPhrases :: [String] -> [String]
+    otherPhrases ps = phrasesByNotInds ps phrOrder
 
 main                =  do
     (file : args) <- getArgs
