@@ -6,11 +6,10 @@ import Data.Char                -- For isSpace
 import Data.Maybe               -- For fromJust
 import Data.Monoid
 import Control.Monad
-import Control.Applicative
+import Control.Applicative      -- For Applicative ((->) a).
 import Control.Monad.State      -- For State monad.
 import Control.Monad.Reader
 
-type Index          =  Int
 newtype BState s a  =  BState {runBState :: (s -> (a, s))}
 -- From "The essence of functional programming" by Philip Wadler.
 instance Monad (BState s) where
@@ -40,6 +39,7 @@ splitBy s           = foldr go [[]]
 
 -- Indexed list. {{{
 
+type Index          =  Int
 -- Folding functions for use in State or Backward State monads.
 -- Add list element x to the accumulator z only if its index s equals to i.
 onlyInds :: [Index] -> a -> [a] -> Index -> ([a], Index)
@@ -100,37 +100,18 @@ splitToPhrases      = map dropSpaces . splitBy phrSep
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
 
-{-
--- Create list of phrase column numbers (indexes) from list of column names.
-createOrder :: [String] -> [String] -> [Index]
-createOrder xs refs = xs >>= indsByPhrase refs
---createOrder refs    = concat . map (indsByPhrase refs)-}
-
 reorderPhrases :: [String] -> [String] -> [[String]]
 reorderPhrases colNames (refs : ls)
-                    -- = map orderLine ls
-                    -- = map (runReader orderLine'' . splitToPhrases) ls
-                    = map (orderLine''' . splitToPhrases) ls
+                    = map (orderLine . splitToPhrases) ls
   where
     phrOrder :: [Index]
     phrOrder        = colNames >>= indsByPhrase refs'
       where refs'   = splitToPhrases refs
-    orderLine :: String -> [String]
-    orderLine l     = let ps = splitToPhrases l
-                      --in  (phrasesByNotInds ps phrOrder) ++ (phrOrder >>= phraseByInd ps)
-                      in  (orderPhrases ps) ++ (otherPhrases ps)
-    orderLine' :: String -> [String]
-    orderLine' l    = let ps = splitToPhrases l
-                      in  runReader (liftM2 (++) (Reader orderPhrases) (Reader otherPhrases)) ps
-    orderLine'' :: Reader [String] [String]
-    orderLine''     = liftM2 (++) (Reader orderPhrases) (Reader otherPhrases)
-    orderLine''' :: [String] -> [String]
-    orderLine'''    = (++) <$> orderPhrases <*> otherPhrases
-    orderPhrases :: [String] -> [String]
-    orderPhrases ps = phrOrder >>= phraseByInd ps
-    --orderPhrases ps = concat $ map (phraseByInd ps) phrOrder
-    otherPhrases :: [String] -> [String]
-    otherPhrases ps = phrasesByNotInds ps phrOrder
+    orderLine :: [String] -> [String]
+    orderLine       = (++) <$> orderedPhrases <*> otherPhrases
+      where
+        orderedPhrases ps   = phrOrder >>= phraseByInd ps
+        otherPhrases ps     = phrasesByNotInds ps phrOrder
 
 main                =  do
     (file : args) <- getArgs
