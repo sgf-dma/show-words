@@ -9,6 +9,7 @@ import Control.Monad
 import Control.Applicative      -- For Applicative ((->) a).
 import Control.Monad.State      -- For State monad.
 import Control.Monad.Reader
+import Control.Exception        -- For bracket.
 
 newtype BState s a  =  BState {runBState :: (s -> (a, s))}
 -- From "The essence of functional programming" by Philip Wadler.
@@ -119,8 +120,8 @@ reorderPhrases colNames (refs : ls)
 putPhrases :: [[String]] -> IO ()
 putPhrases lss      = mapM_ (\x -> putPhrase x >> waitKey) $ lss >>= inlineSeps
   where
-    -- Prepend newline into the first string, and spaces into every other (i
-    -- add spaces into strings itself, but not as new list elements).
+    -- Append newline into the last string in a line, and prepend spaces into
+    -- every other (i add into string itself, but not as new list element).
     inlineSeps :: [String] -> [String]
     inlineSeps (x : [])    = (' ' : x ++ "\n") : []
     inlineSeps (x : xs)    = (' ' : x) : inlineSeps xs
@@ -131,13 +132,13 @@ putPhrases lss      = mapM_ (\x -> putPhrase x >> waitKey) $ lss >>= inlineSeps
 
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
--- FIXME: brackets.
 main                =  do
     (file : colNames) <- getArgs
-    handle <- openFile file ReadMode
-    contents <- hGetContents handle
-    hSetEcho stdin False
-    putPhrases $ reorderPhrases colNames $ lines contents
-    putStrLn "Bye!"
-    hClose handle
+    bracket (openFile file ReadMode)
+            hClose
+            (\h -> do
+                contents <- hGetContents h
+                hSetEcho stdin False
+                putPhrases $ reorderPhrases colNames $ lines contents
+                putStrLn "Bye!")
 
