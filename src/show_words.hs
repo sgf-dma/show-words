@@ -116,34 +116,20 @@ reorderPhrases colNames (refs : ls)
         orderedPhrases ps   = phrOrder >>= phraseByInd ps
         otherPhrases ps     = phrasesByNotInds ps phrOrder
 
--- Show phrases in specified (by column names list) order. Lines are
--- preserved.
-showPhrases :: [String] -> String -> String
-showPhrases colNames = unlines . map unwords . reorderPhrases colNames . lines
-
---putPhrases :: [[String]] -> IO ()
-putPhrases :: [String] -> IO [()]
---putPhrases ls = sequence $ intersperse (putChar ' ') $ map putStr ls
-putPhrases ls = sequence $ map putStr $ intersperse " " ls
-putPhrases' :: [[String]] -> IO ()
-putPhrases' lss     = putStr $ lss >>= foldr (\x z -> x ++ ' ' : z) "\n"
-putPhrases'' :: [[String]] -> IO ()
-putPhrases'' lss = mapM_ (\x -> putPhrase x >> waitKey) $ lss >>= inlineSeps'
+putPhrases :: [[String]] -> IO ()
+putPhrases lss      = mapM_ (\x -> putPhrase x >> waitKey) $ lss >>= inlineSeps
   where
     -- Prepend newline into the first string, and spaces into every other (i
     -- add spaces into strings itself, but not as new list elements).
     inlineSeps :: [String] -> [String]
-    inlineSeps (x : xs) = ('\n' : x) : map (' ' :) xs
-    inlineSeps' :: [String] -> [String]
-    inlineSeps' (x : [])    = (' ' : x ++ "\n") : []
-    inlineSeps' (x : xs)    = (' ' : x) : inlineSeps' xs
+    inlineSeps (x : [])    = (' ' : x ++ "\n") : []
+    inlineSeps (x : xs)    = (' ' : x) : inlineSeps xs
     putPhrase :: String -> IO ()
     putPhrase xs    = putStr xs >> hFlush stdout
     waitKey :: IO ()
     waitKey         = getChar >> return ()
 
 -- FIXME: utf8 support.
--- FIXME: Disable input echo.
 -- FIXME: Bytestrings.
 -- FIXME: brackets.
 main                =  do
@@ -151,10 +137,7 @@ main                =  do
     handle <- openFile file ReadMode
     contents <- hGetContents handle
     hSetEcho stdin False
-    putPhrases'' $ reorderPhrases colNames $ lines contents
+    putPhrases $ reorderPhrases colNames $ lines contents
     putStrLn "Bye!"
-    --putPhrases' $ reorderPhrases colNames $ lines contents
-    --putStr $ showPhrases colNames contents
-    --sequence $ map putStrLn $ concat $ reorderPhrases args $ lines contents
     hClose handle
 
