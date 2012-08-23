@@ -121,8 +121,8 @@ phraseOrder refs colNames   = colNames >>= indsByElem (==) refs'
 -- Inline separators into phrases. Prepend outPhrSep to all phrases, except
 -- first (in the list). No new elements is added to the list.
 inlineSeps :: [String] -> [String]
-inlineSeps []       = []
-inlineSeps (x : xs) = x : (foldl go ([] ++) xs $ [])
+inlineSeps []        = []
+inlineSeps (x0 : xs) = x0 : (foldl go ([] ++) xs $ [])
   where
     -- Fast implementation of left-associative (++) expression. Inspired by
     -- DiffList newtype from LYaH.
@@ -148,6 +148,7 @@ orderLine phrOrder  = ((++) <$> orderedPhrases <*> otherPhrases) . splitToPhrase
 -- must contain column names in current order (it will not be printed). Not
 -- specified columns will be joined into one last phrase at each line.
 reorderPhrases :: [String] -> [String] -> [[String]]
+reorderPhrases _ []                 = [[]]
 reorderPhrases colNames (refs : ls) = let phrOrder = phraseOrder refs colNames
                                       in  map (orderLine phrOrder) ls
 
@@ -173,51 +174,33 @@ checkAnswer p       = do
 -- just outputted.
 -- Output phrases and execute specified action before every phrase in a line,
 -- except first. First is omitted, because it may be treated as question.
-putPhrases1 :: (String -> IO ()) -> [[String]] -> IO ()
-putPhrases1 f       = mapM_ (putLine . inlineSepsNE)
+putPhrases :: (String -> IO ()) -> [[String]] -> IO ()
+putPhrases f        = mapM_ (putLine . inlineSepsNE)
   where
     putLine :: [String] -> IO ()
-    putLine (x : xs)    = do
-                            putStrF x
-                            mapM_ (\x -> f x >> putStrF x) xs
-                            putStrF "\n"
+    putLine []       = return ()
+    putLine (x0 : xs) = do
+                        putStrF x0
+                        mapM_ (\x -> f x >> putStrF x) xs
+                        putStrF "\n"
 
-putPhrases :: [[String]] -> IO ()
-putPhrases lss      = mapM_ (\x -> putLine1 x >> putStr "\n") lss
-  where
-    putLine1 :: [String] -> IO ()
-    putLine1        = mapM_ putAndWait . inlineSepsNE
-      where
-        putAndWait :: String -> IO Char
-        putAndWait xs   = putStrF xs >> getChar
-    putLine2 :: [String] -> IO ()
-    putLine2 l      = let (x : xs) = inlineSepsNE l
-                      in  do
-                            putStrF x
-                            mapM_ putAndCheck xs
-      where
-        checkAnswer :: String -> String -> String
-        checkAnswer xs r
-          | r == xs     = "Ura: "
-          | otherwise   = "Ops: "
-        putAndCheck :: String -> IO ()
-        putAndCheck xs  = do
-            r <- getLine
-            putStrF $ (checkAnswer xs r) ++ xs
-
-
--- FIXME: Empty lines?
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.. This is the problem, really.
+-- Usage: ./show_words mode file [column_names]
 main                =  do
-    (file : colNames) <- getArgs
+    (mode : file : colNames) <- getArgs
     bracket (openFile file ReadMode)
             hClose
             (\h -> do
                 contents <- hGetContents h
                 hSetEcho stdin False
-                putPhrases1 checkAnswer $ reorderPhrases colNames $ lines contents
+                putPhrases (setMode mode) $ reorderPhrases colNames $ lines contents
                 putStrLn "Bye!")
+  where
+    setMode :: String -> (String -> IO ())
+    setMode xs
+      | xs == "check"   = checkAnswer
+      | otherwise       = waitKey
 
