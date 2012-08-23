@@ -96,7 +96,7 @@ elemByInd :: [a] -> Index -> [a]
 elemByInd xs j          = elemsByInds xs [j]
 
 indsByElem :: (a -> a -> Bool) -> [a] -> a -> [Index]
-indsByElem eq xs e      = indsByElems eq xs [e]
+indsByElem eq xs k      = indsByElems eq xs [k]
 
 
 -- Phrase separators.
@@ -121,12 +121,17 @@ phraseOrder refs colNames   = colNames >>= indsByElem (==) refs'
 -- Inline separators into phrases. Prepend outPhrSep to all phrases, except
 -- first (in the list). No new elements is added to the list.
 inlineSeps :: [String] -> [String]
+inlineSeps []       = []
 inlineSeps (x : xs) = x : (foldl go ([] ++) xs $ [])
   where
     -- Fast implementation of left-associative (++) expression. Inspired by
     -- DiffList newtype from LYaH.
     go :: ([String] -> [String]) -> String -> [String] -> [String]
     go z x          = let x' = outPhrSep ++ x in z . ([x'] ++)
+
+-- Omit empty strings from resulting list.
+inlineSepsNE :: [String] -> [String]
+inlineSepsNE        = inlineSeps . filter (not . null)
 
 -- Convert line to list of phrases in specified order. All phrases not
 -- specified in phrase order will be joined (using inlineSeps) into one last
@@ -146,40 +151,66 @@ reorderPhrases :: [String] -> [String] -> [[String]]
 reorderPhrases colNames (refs : ls) = let phrOrder = phraseOrder refs colNames
                                       in  map (orderLine phrOrder) ls
 
-putPhrases :: [[String]] -> IO ()
-putPhrases lss      = mapM_ putLine1 lss
-                    -- = mapM_ (\x -> putPhrase x >> waitKey) $ lss >>= inlineSeps
+putStrF :: String -> IO ()
+putStrF x           = putStr x >> hFlush stdout
+
+-- Wait for a user pressing key.
+waitKey :: String -> IO ()
+waitKey _           = getChar >> return ()
+
+-- Check that user entered correct phrase.
+checkAnswer :: String -> IO ()
+checkAnswer p       = do
+                        r <- getLine
+                        putStr $ checkPhrase r
   where
-    -- Append newline into the last string in a line, and prepend spaces into
-    -- every other (i add into string itself, but not as new list element).
-    inlineSeps :: [String] -> [String]
-    inlineSeps (x : [])    = (' ' : x ++ "\n") : []
-    inlineSeps (x : xs)    = (' ' : x) : inlineSeps xs
-    putPhrase :: String -> IO ()
-    putPhrase xs    = putStr xs >> hFlush stdout
-    waitKey :: IO ()
-    waitKey         = getChar >> return ()
+    checkPhrase :: String -> String
+    checkPhrase r
+      | r == p      = "Ura: "
+      | otherwise   = "Ops: "
+
+-- FIXME: Last line, when it was not mentioned in column spec, should also be
+-- just outputted.
+-- Output phrases and execute specified action before every phrase in a line,
+-- except first. First is omitted, because it may be treated as question.
+putPhrases1 :: (String -> IO ()) -> [[String]] -> IO ()
+putPhrases1 f       = mapM_ (putLine . inlineSepsNE)
+  where
     putLine :: [String] -> IO ()
-    putLine (x : [])    = putChar ' ' >> putAndWait x >> putChar '\n'
-    putLine (x : xs)    = putChar ' ' >> putAndWait x >> putLine xs
-    putAndWait :: String -> IO ()
-    putAndWait ps   = putStr ps >> hFlush stdout >> getChar >> return ()
+    putLine (x : xs)    = do
+                            putStrF x
+                            mapM_ (\x -> f x >> putStrF x) xs
+                            putStrF "\n"
+
+putPhrases :: [[String]] -> IO ()
+putPhrases lss      = mapM_ (\x -> putLine1 x >> putStr "\n") lss
+  where
     putLine1 :: [String] -> IO ()
-    putLine1 (x : xs)   = putChar ' ' >> putAndGet x >>= putLine1' xs
+    putLine1        = mapM_ putAndWait . inlineSepsNE
       where
-        putLine1' :: [String] -> String -> IO ()
-        putLine1' (x : []) r
-          | x == r              = putStr " Ura: " >> putAndGet x >> putChar '\n'
-          | otherwise           = putStr " Oops: " >> putAndGet x >> putChar '\n'
-        putLine1' (x : xs) r
-          | x == r              = putStr " Ura: " >> putAndGet x >>= putLine1' xs
-          | otherwise           = putStr " Oops: " >> putAndGet x >>= putLine1' xs
-    putAndGet :: String -> IO String
-    putAndGet ps    = putStr ps >> hFlush stdout >> getLine
+        putAndWait :: String -> IO Char
+        putAndWait xs   = putStrF xs >> getChar
+    putLine2 :: [String] -> IO ()
+    putLine2 l      = let (x : xs) = inlineSepsNE l
+                      in  do
+                            putStrF x
+                            mapM_ putAndCheck xs
+      where
+        checkAnswer :: String -> String -> String
+        checkAnswer xs r
+          | r == xs     = "Ura: "
+          | otherwise   = "Ops: "
+        putAndCheck :: String -> IO ()
+        putAndCheck xs  = do
+            r <- getLine
+            putStrF $ (checkAnswer xs r) ++ xs
 
 
+-- FIXME: Empty lines?
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
+-- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
+-- enabled, newline will break all output.. This is the problem, really.
 main                =  do
     (file : colNames) <- getArgs
     bracket (openFile file ReadMode)
@@ -187,6 +218,6 @@ main                =  do
             (\h -> do
                 contents <- hGetContents h
                 hSetEcho stdin False
-                putPhrases $ reorderPhrases colNames $ lines contents
+                putPhrases1 checkAnswer $ reorderPhrases colNames $ lines contents
                 putStrLn "Bye!")
 
