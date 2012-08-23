@@ -167,8 +167,12 @@ checkAnswer p       = do
   where
     checkPhrase :: String -> String
     checkPhrase r
-      | r == p      = "Ura: "
+      | r' == p     = "Ura: "
       | otherwise   = "Ops: "
+      where
+        -- Add separator to user response. Otherwise, i can't match literally.
+        r' :: String
+        r'          = last $ inlineSeps ("" : [r])
 
 -- FIXME: Last line, when it was not mentioned in column spec, should also be
 -- just outputted.
