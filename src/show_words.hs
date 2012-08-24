@@ -127,30 +127,21 @@ indsByElem eq xs k      = indsByElems eq xs [k]
 
 -- END Index list. }}}
 
+-- FIXME: Use string in inPhraseSep.
+data PhraseSep      = PhraseSep { inPhraseSep   :: Char
+                                , outPhraseSep  :: String
+                                , referenceSep  :: String
+                                }
+
 -- Phrase separators.
 phrSep              = '-'
 -- Separator for heading.
 refSep              = ' ' : phrSep : " "
 outPhrSep           = " : "
 
--- Split each string to phrases by phrSep character (omitting separator
--- itself) and remove leading and trailing spaces from each phrase (phrase may
--- contain spaces).
-splitToPhrases :: String -> [String]
-splitToPhrases      = map dropSpaces . splitBy phrSep
-  where
-    dropSpaces :: String -> String
-    dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
-
--- Convert list of column names to list of column numbers (preserving order).
--- Use reference string separated by phrSep for recognizing column names.
-phraseOrder :: String -> [String] -> [Index]
-phraseOrder refs colNames   = colNames >>= indsByElem (==) refs'
-  where refs'               = splitToPhrases refs
-
--- Inline separators into phrases (add into list element itself, hence no new
--- elements is added to the list). Prepend outPhrSep to all phrases, except
--- first (in the list). 
+-- Inline separators into strings (add into string itself, hence no new
+-- strings is added to the list). Prepend supplied separator to all strings,
+-- except first. 
 inlineSeps :: String -> [String] -> [String]
 inlineSeps _   []           = []
 inlineSeps sep (xa : xs)    = xa : (foldl go ([] ++) xs $ [])
@@ -170,30 +161,69 @@ inlineSepsNE (xa : xs)  = xa : (foldl go ([] ++) xs $ [])
     go z []         = z . ([""] ++)
     go z x          = let x' = outPhrSep ++ x in z . ([x'] ++)
 
--- Convert line to list of phrases in specified order. All phrases not
--- specified in phrase order will be joined (using inlineSeps) into one last
--- phrase.
-orderLine :: [Index] -> String -> String -> [String]
-orderLine phrOrder sep  = ((++) <$> orderedPhrases <*> otherPhrases)
-                          . splitToPhrases
+-- Convert list of column names to list of column numbers (preserving order).
+-- Use supplied reference string for recognizing column names.
+phraseOrder :: [String] -> [String] -> [Index]
+phraseOrder refs colNames   = colNames >>= indsByElem (==) refs
+
+-- Reorder phrases in the line according to supplied order. All "other"
+-- phrases (not referenced from phrase order) will be joined (using inlSeps
+-- function) into one last phrase. inlSeps function must add separators into
+-- strings (i.e. without adding new list elements), except for the first
+-- string in the list.
+orderLine :: [Index] -> ([String] -> [String]) -> [String] -> [String]
+orderLine phrOrder inlSeps  = makeLine <$> orderedPhrases <*> otherPhrases
   where
     orderedPhrases :: [String] -> [String]
     orderedPhrases ps   = phrOrder >>= elemByInd ps
-    -- Even if there is no other phrases, otherPhrases will be empty String,
-    -- but not empty list. And, hence, list returned by orderLine will always
-    -- contains otherPhrases as last (may be empty and may be only) element.
     otherPhrases :: [String] -> [String]
-    otherPhrases ps = (concat $ inlineSeps sep $ elemsByNotInds ps $ phrOrder) : []
+    otherPhrases   ps   = elemsByNotInds ps phrOrder
+    -- If there is ordered phrases (referenced from supplied order), other
+    -- phrases string must start with separator (if not empty) to distinguish
+    -- "no other phrases" and "one empty other phrase" cases.
+    makeLine :: [String] -> [String] -> [String]
+    makeLine []  ps2    = let ps2' = (concat $ inlSeps       ps2)  : [] in ps2'
+    makeLine ps1 ps2    = let ps2' = (concat $ inlSeps ("" : ps2)) : []
+                          in  ps1 ++ ps2'
 
--- Reorder phrases in each line according to column names list.  First line
--- must contain column names in current order. Not specified columns will be
--- joined into one last phrase at each line.
-reorderPhrases :: [String] -> [String] -> [[String]]
-reorderPhrases _ []                 = [[]]
-reorderPhrases colNames (ref : ls)  =
-    let phrOrder = phraseOrder ref colNames
-        ref' = concat $ inlineSeps refSep $ orderLine phrOrder refSep ref
-    in  [ref'] : map (orderLine phrOrder outPhrSep) ls
+-- FIXME: Heading is broken by recent orderLine change. Now to inline seps
+-- into orderLine result i need to (splitAtEnd indBase) it first.
+-- FIXME: First map (orderLine) over all lines, including heading, and then
+-- fix heading. Will it be better?
+
+-- Reorder phrases in each line according to column names list.  Not specified
+-- columns will be joined into one last phrase at each line. First line is
+-- treated as "reference", i.e. containing column names in current order.
+-- It'll be also reordered to new order.
+reorderPhrases :: [String] -> PhraseSep -> [[String]] -> [[String]]
+reorderPhrases colNames sep (refs : lss) =
+    let lss'    = map (orderLine phrOrder inlPhrSeps) lss
+    in  (newRefs : lss')
+  where
+    inlRefSeps :: [String] -> [String]
+    inlRefSeps  = inlineSeps (referenceSep sep)
+    inlPhrSeps :: [String] -> [String]
+    inlPhrSeps  = inlineSeps (outPhraseSep sep)
+    phrOrder :: [Index]
+    phrOrder    = phraseOrder refs colNames
+    newRefs :: [String]
+    newRefs     = let refs'     = orderLine phrOrder inlRefSeps refs
+                      (rs, rb)  = splitAtEnd indBase refs'
+                  in  (concat (inlRefSeps rs ++ rb)) : []
+reorderPhrases _ _ _    = [[]]
+
+-- FIXME: Store line in reverse order. This will require one additional
+-- reverse before use, but speed up all other decompositions by splitAtEnd.
+
+-- FIXME: Split by string, not just character.
+-- Split each string to phrases by supplied character (omitting separator
+-- itself) and remove leading and trailing spaces from each phrase (inner
+-- spaces preserved).
+splitToPhrases :: Char -> String -> [String]
+splitToPhrases sep  = map dropSpaces . splitBy sep
+  where
+    dropSpaces :: String -> String
+    dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
 
 putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
@@ -211,8 +241,8 @@ checkAnswer p       = do
   where
     checkPhrase :: String -> String
     checkPhrase r
-      | r == p      = " Ura: "
-      | otherwise   = " Ops: "
+      | r == p      = " Ura! "
+      | otherwise   = " Ops! "
 
 -- If i inline separators to all phrases, including empty, this
 --      - reveals non-existent last element ("other" phrases), when it's
@@ -243,9 +273,7 @@ putPhrases f            = mapM_ putLine
                             mapM_ (\x -> do
                                 r <- f x
                                 putStrF (outPhrSep ++ r ++ x)) xs'
-                            if null xb
-                              then putStrF (xb ++ "\n")
-                              else putStrF (outPhrSep ++ xb ++ "\n")
+                            putStrF (xb ++ "\n")
     {-
 putPhrases1 f               = mapM_ (putLine >>= putStrF . inlineSeps outPhrSep)
   where
@@ -274,6 +302,7 @@ putPhrases1 f               = mapM_ (putLine >>= putStrF . inlineSeps outPhrSep)
                                     putStrF (r ++ x)) xs'
                                 putStrF (xb ++ "\n")-}
 
+-- FIXME: splitAtEnd.. well, it's certainly really cool,
 -- FIXME: Makefile
 -- FIXME: Split index list and other library functions to separate file.
 -- FIXME: Match partial column names.
@@ -293,7 +322,10 @@ main                =  do
     (mode : file : colNames) <- getArgs
     contents <- readFile file
     hSetEcho stdin False
-    putPhrases (setMode mode) $ reorderPhrases colNames $ lines contents
+    putPhrases (setMode mode)
+        $ reorderPhrases colNames (PhraseSep '-' " : " " - ")
+        $ map (splitToPhrases '-')
+        $ lines contents
     putStrLn "Bye!"
   where
     setMode :: String -> (String -> IO String)
