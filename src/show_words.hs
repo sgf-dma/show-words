@@ -13,8 +13,54 @@ import Control.Exception        -- For bracket.
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as B
 
+-- Reimplement some library functions :-)
+
+-- Monadic folds.
+foldrM :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
+foldrM g z []       =  return z
+foldrM g z (x : xs) =  foldrM g z xs >>= g x
+foldlM              :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
+foldlM g z []       =  return z
+foldlM g z (x : xs) =  g z x >>= \z' -> foldlM g z' xs
+
+-- On my system Data.List does not contain dropWhileEnd.
+dropWhileEnd :: (a -> Bool) -> [a] -> [a]
+dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
+
+-- Start index (for State monads).
+indBase             = 1
+
+-- Split list. {{{
+
+-- Reverse of splitAt (count elements from list end).
+splitAtEndM :: Index -> [a] -> State Index ([a], [a])
+splitAtEndM i xs    = foldrM go ([], []) xs
+  where
+    go :: a -> ([a], [a]) -> State Index ([a], [a])
+    go x (z1, z2)       = State $ \s -> let z' = if s <= i then (z1, x : z2)
+                                                   else         (x : z1, z2)
+                                        in  (z', s + 1)
+
+-- Unwrap State monad.
+splitAtEnd :: Index -> [a] -> ([a], [a])
+splitAtEnd i xs         = fst $ runState (splitAtEndM i xs) indBase
+
+-- Split list by separator (omitting separator itself).
+splitBy :: (Eq a) => a -> [a] -> [[a]]
+splitBy s []        = []
+splitBy s xs        = foldr go [[]] xs
+  where
+    go x zl@(z : zs)
+      | x == s       = [] : zl
+      | otherwise    = (x : z) : zs
+
+-- END Split list. }}}
+-- Index list. {{{
+
+type Index          =  Int
+-- Backward state monad from "The essence of functional programming" by Philip
+-- Wadler.
 newtype BState s a  =  BState {runBState :: (s -> (a, s))}
--- From "The essence of functional programming" by Philip Wadler.
 instance Monad (BState s) where
     return x        =  BState (\s -> (x, s))
     BState m >>= f  =  BState $ \s2 ->
@@ -23,27 +69,7 @@ instance Monad (BState s) where
                             (x', s1)  = m' s2
                         in  (x', s0)
 
-foldrM :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
-foldrM g z []       =  return z
-foldrM g z (x : xs) =  foldrM g z xs >>= g x
-foldlM              :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
-foldlM g z []       =  return z
-foldlM g z (x : xs) =  g z x >>= \z' -> foldlM g z' xs
-
--- Data.List does not contain it on my system.
-dropWhileEnd :: (a -> Bool) -> [a] -> [a]
-dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
-
--- Split list by separator (omitting separator itself).
-splitBy :: (Eq a) => a -> [a] -> [[a]]
-splitBy s           = foldr go [[]]
-  where
-    go x zl@(z : zs) = if x == s then [] : zl else (x : z) : zs
-
--- Indexed list.
-type Index          =  Int
-
--- Folding functions for use in State or Backward State monads.
+-- Folding functions for use in State monads for indexing list. {{{
 -- 
 -- Add list element x to the accumulator z only if its index s equals to i.
 onlyInds :: [Index] -> a -> [a] -> Index -> ([a], Index)
@@ -60,8 +86,9 @@ indsOfs :: (a -> [a] -> Bool) -> [a] -> a -> [Index] -> Index -> ([Index], Index
 indsOfs elem' ks x z  = \s -> let z' = if x `elem'` ks then s : z else z
                               in  (z', s + 1)
 
--- Index list by folding inside Backward State monad.
---
+-- END Folding functions for use in State monads for indexing list. }}}
+-- Index list by right folding it inside Backward State monad. {{{
+
 -- Choose all elements from list which indexes are in the specified index
 -- list.
 elemsByIndsM :: [Index] -> [a] -> BState Index [a]
@@ -78,11 +105,9 @@ indsByElemsM :: (a -> a -> Bool) -> [a] -> [a] -> BState Index [Index]
 indsByElemsM eq ks  = foldrM (\x -> BState . indsOfs elem' ks x) []
   where elem' y     = foldr (\x z -> if x `eq` y then True else z) False
 
+-- END Index list by folding inside Backward State monad. }}}
+-- Unwrap monad from list indexing functions. {{{
 
--- Start index.
-indBase             = 1
-
--- Unwrap monad from list index functions.
 elemsByInds :: [a] -> [Index] -> [a]
 elemsByInds xs js       = fst $ runBState (elemsByIndsM js xs) indBase
 
@@ -98,6 +123,9 @@ elemByInd xs j          = elemsByInds xs [j]
 indsByElem :: (a -> a -> Bool) -> [a] -> a -> [Index]
 indsByElem eq xs k      = indsByElems eq xs [k]
 
+-- END Unwrap monad from list index functions. }}}
+
+-- END Index list. }}}
 
 -- Phrase separators.
 phrSep              = '-'
@@ -118,20 +146,29 @@ phraseOrder :: String -> [String] -> [Index]
 phraseOrder refs colNames   = colNames >>= indsByElem (==) refs'
   where refs'               = splitToPhrases refs
 
--- Inline separators into phrases. Prepend outPhrSep to all phrases, except
--- first (in the list). No new elements is added to the list.
+-- Inline separators into phrases (add into list element itself, hence no new
+-- elements is added to the list). Prepend outPhrSep to all phrases, except
+-- first (in the list). 
 inlineSeps :: [String] -> [String]
 inlineSeps []        = []
-inlineSeps (x0 : xs) = x0 : (foldl go ([] ++) xs $ [])
+inlineSeps (xa : xs) = xa : (foldl go ([] ++) xs $ [])
   where
     -- Fast implementation of left-associative (++) expression. Inspired by
     -- DiffList newtype from LYaH.
     go :: ([String] -> [String]) -> String -> [String] -> [String]
     go z x          = let x' = outPhrSep ++ x in z . ([x'] ++)
 
--- Omit empty strings from resulting list.
+-- Do not inline separators in empty strings.
+-- FIXME: Can i drop first version (inlineSeps) and use this everywhere?
 inlineSepsNE :: [String] -> [String]
-inlineSepsNE        = inlineSeps . filter (not . null)
+inlineSepsNE []         = []
+inlineSepsNE (xa : xs)  = xa : (foldl go ([] ++) xs $ [])
+  where
+    -- Fast implementation of left-associative (++) expression. Inspired by
+    -- DiffList newtype from LYaH.
+    go :: ([String] -> [String]) -> String -> [String] -> [String]
+    go z []         = z . ([""] ++)
+    go z x          = let x' = outPhrSep ++ x in z . ([x'] ++)
 
 -- Convert line to list of phrases in specified order. All phrases not
 -- specified in phrase order will be joined (using inlineSeps) into one last
@@ -141,6 +178,9 @@ orderLine phrOrder  = ((++) <$> orderedPhrases <*> otherPhrases) . splitToPhrase
   where
     orderedPhrases :: [String] -> [String]
     orderedPhrases ps   = phrOrder >>= elemByInd ps
+    -- Even if there is no other phrases, otherPhrases will be empty String,
+    -- but not empty list. And, hence, list returned by orderLine will always
+    -- contains otherPhrases as last (may be empty and may be only) element.
     otherPhrases :: [String] -> [String]
     otherPhrases ps = (concat $ inlineSeps $ elemsByNotInds ps $ phrOrder) : []
 
@@ -150,12 +190,13 @@ orderLine phrOrder  = ((++) <$> orderedPhrases <*> otherPhrases) . splitToPhrase
 reorderPhrases :: [String] -> [String] -> [[String]]
 reorderPhrases _ []                 = [[]]
 reorderPhrases colNames (refs : ls) = let phrOrder = phraseOrder refs colNames
+                                          --refs' = elemsByInds refs phrOrder
                                       in  map (orderLine phrOrder) ls
 
 putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
 
--- Wait for a user pressing key.
+-- Wait for a key from user.
 waitKey :: String -> IO ()
 waitKey _           = getChar >> return ()
 
@@ -167,32 +208,46 @@ checkAnswer p       = do
   where
     checkPhrase :: String -> String
     checkPhrase r
-      | r' == p     = "Ura: "
-      | otherwise   = "Ops: "
+      | r' == p     = " Ura: "
+      | otherwise   = " Ops: "
       where
         -- Add separator to user response. Otherwise, i can't match literally.
         r' :: String
         r'          = last $ inlineSeps ("" : [r])
 
--- FIXME: Last line, when it was not mentioned in column spec, should also be
--- just outputted.
 -- Output phrases and execute specified action before every phrase in a line,
 -- except first. First is omitted, because it may be treated as question.
 putPhrases :: (String -> IO ()) -> [[String]] -> IO ()
-putPhrases f        = mapM_ (putLine . inlineSepsNE)
+putPhrases f            = mapM_ (putLine . inlineSepsNE)
   where
     putLine :: [String] -> IO ()
-    putLine []       = return ()
-    putLine (x0 : xs) = do
-                        putStrF x0
-                        mapM_ (\x -> f x >> putStrF x) xs
-                        putStrF "\n"
+    putLine []          = return ()
+    putLine [xa]
+      | null xa         = return ()
+      | otherwise       = putStrF (xa ++ "\n")
+    putLine (xa : xs)   = do
+                            putStrF xa
+                            let (xs', [xb]) = splitAtEnd indBase xs
+                            mapM_ (\x -> f x >> putStrF x) xs'
+                            putStrF (xb ++ "\n")
 
+-- FIXME: Print heading line, which shows current column order.
+-- FIXME: Makefile
+-- FIXME: Split index list and other library functions to separate file.
+-- FIXME: Match partial column names.
+-- FIXME: Use foldrM from Data.Foldable ?
+-- FIXME: Import only required functions.
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
+-- FIXME: readFile instead of bracket.
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
--- enabled, newline will break all output.. This is the problem, really.
+-- enabled, newline will break all output.
+
 -- Usage: ./show_words mode file [column_names]
+--
+-- Be aware, that incorrect column names silently skipped without any
+-- notification.  This may lead to nasty bugs, when all seems ok, but not
+-- works however. So, double check column names in words file and on cmd!
 main                =  do
     (mode : file : colNames) <- getArgs
     bracket (openFile file ReadMode)
