@@ -199,22 +199,20 @@ putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
 
 -- Wait for a key from user.
-waitKey :: String -> IO ()
-waitKey _           = getChar >> return ()
+waitKey :: String -> IO String
+waitKey _           = getChar >> return ""
 
 -- Check that user entered correct phrase.
-checkAnswer :: String -> IO ()
-checkAnswer []      = return ()
+checkAnswer :: String -> IO String
+checkAnswer []      = return ""
 checkAnswer p       = do
                         r <- getLine
-                        putStr $ checkPhrase r
+                        return (checkPhrase r)
   where
     checkPhrase :: String -> String
-    checkPhrase []      = " Ops: "
     checkPhrase r
-      -- Reference phrase p is prefix by separator.
-      | isSuffixOf r p  = " Ura: "
-      | otherwise       = " Ops: "
+      | r == p      = " Ura: "
+      | otherwise   = " Ops: "
 
 -- If i inline separators to all phrases, including empty, this
 --      - reveals non-existent last element ("other" phrases), when it's
@@ -231,53 +229,23 @@ checkAnswer p       = do
 
 -- Output phrases and execute specified action before every phrase in a line,
 -- except first. First is omitted, because it may be treated as question.
-putPhrases :: (String -> IO ()) -> [[String]] -> IO ()
-putPhrases f               = mapM_ (putLine . inlineSeps outPhrSep)
+putPhrases :: (String -> IO String) -> [[String]] -> IO ()
+putPhrases f            = mapM_ putLine
   where
     putLine :: [String] -> IO ()
-    putLine []              = return ()
+    putLine []          = return ()
     putLine [xa]
-      | null xa             = return ()
-      | otherwise           = putStrF (xa ++ "\n")
-    putLine (xa : xs)       = do
-                                putStrF xa
-                                let (xs', [xb]) = splitAtEnd indBase xs
-                                mapM_ (\x -> f x >> putStrF x) xs'
-                                putStrF (xb ++ "\n")
-
-waitKey1 :: String -> IO String
-waitKey1 _          = getChar >> return ""
-
-checkAnswer1 :: String -> IO String
-checkAnswer1 []     = return ""
-checkAnswer1 p      = do
-                        r <- getLine
-                        return (checkPhrase r)
-  where
-    checkPhrase :: String -> String
-    checkPhrase []      = " Ops: "
-    checkPhrase r
-      -- Reference phrase p is prefix by separator.
-      | isSuffixOf r p  = " Ura: "
-      | otherwise       = " Ops: "
-
-putPhrases1 :: (String -> IO String) -> [[String]] -> IO ()
-putPhrases1 f               = mapM_ putLine
-  where
-    putLine :: [String] -> IO ()
-    putLine []              = return ()
-    putLine [xa]
-      | null xa             = return ()
-      | otherwise           = putStrF (xa ++ "\n")
-    putLine (xa : xs)       = do
-                                putStrF xa
-                                let (xs', [xb]) = splitAtEnd indBase xs
-                                mapM_ (\x -> do
-                                    r <- f x
-                                    putStrF (outPhrSep ++ r ++ x)) xs'
-                                if null xb
-                                  then putStrF (xb ++ "\n")
-                                  else putStrF (outPhrSep ++ xb ++ "\n")
+      | null xa         = return ()
+      | otherwise       = putStrF (xa ++ "\n")
+    putLine (xa : xs)   = do
+                            putStrF xa
+                            let (xs', [xb]) = splitAtEnd indBase xs
+                            mapM_ (\x -> do
+                                r <- f x
+                                putStrF (outPhrSep ++ r ++ x)) xs'
+                            if null xb
+                              then putStrF (xb ++ "\n")
+                              else putStrF (outPhrSep ++ xb ++ "\n")
     {-
 putPhrases1 f               = mapM_ (putLine >>= putStrF . inlineSeps outPhrSep)
   where
@@ -325,15 +293,11 @@ main                =  do
     (mode : file : colNames) <- getArgs
     contents <- readFile file
     hSetEcho stdin False
-    putPhrases1 (setMode1 mode) $ reorderPhrases colNames $ lines contents
+    putPhrases (setMode mode) $ reorderPhrases colNames $ lines contents
     putStrLn "Bye!"
   where
-    setMode :: String -> (String -> IO ())
+    setMode :: String -> (String -> IO String)
     setMode xs
       | xs == "check"   = checkAnswer
       | otherwise       = waitKey
-    setMode1 :: String -> (String -> IO String)
-    setMode1 xs
-      | xs == "check"   = checkAnswer1
-      | otherwise       = waitKey1
 
