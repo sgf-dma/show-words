@@ -129,6 +129,8 @@ indsByElem eq xs k      = indsByElems eq xs [k]
 
 -- Phrase separators.
 phrSep              = '-'
+-- Separator for heading.
+refSep              = ' ' : phrSep : " "
 outPhrSep           = " : "
 
 -- Split each string to phrases by phrSep character (omitting separator
@@ -149,14 +151,14 @@ phraseOrder refs colNames   = colNames >>= indsByElem (==) refs'
 -- Inline separators into phrases (add into list element itself, hence no new
 -- elements is added to the list). Prepend outPhrSep to all phrases, except
 -- first (in the list). 
-inlineSeps :: [String] -> [String]
-inlineSeps []        = []
-inlineSeps (xa : xs) = xa : (foldl go ([] ++) xs $ [])
+inlineSeps :: String -> [String] -> [String]
+inlineSeps _   []           = []
+inlineSeps sep (xa : xs)    = xa : (foldl go ([] ++) xs $ [])
   where
     -- Fast implementation of left-associative (++) expression. Inspired by
     -- DiffList newtype from LYaH.
     go :: ([String] -> [String]) -> String -> [String] -> [String]
-    go z x          = let x' = outPhrSep ++ x in z . ([x'] ++)
+    go z x                  = let x' = sep ++ x in z . ([x'] ++)
 
 -- Do not inline separators in empty strings.
 -- FIXME: Can i drop first version (inlineSeps) and use this everywhere?
@@ -164,8 +166,6 @@ inlineSepsNE :: [String] -> [String]
 inlineSepsNE []         = []
 inlineSepsNE (xa : xs)  = xa : (foldl go ([] ++) xs $ [])
   where
-    -- Fast implementation of left-associative (++) expression. Inspired by
-    -- DiffList newtype from LYaH.
     go :: ([String] -> [String]) -> String -> [String] -> [String]
     go z []         = z . ([""] ++)
     go z x          = let x' = outPhrSep ++ x in z . ([x'] ++)
@@ -173,8 +173,9 @@ inlineSepsNE (xa : xs)  = xa : (foldl go ([] ++) xs $ [])
 -- Convert line to list of phrases in specified order. All phrases not
 -- specified in phrase order will be joined (using inlineSeps) into one last
 -- phrase.
-orderLine :: [Index] -> String -> [String]
-orderLine phrOrder  = ((++) <$> orderedPhrases <*> otherPhrases) . splitToPhrases
+orderLine :: [Index] -> String -> String -> [String]
+orderLine phrOrder sep  = ((++) <$> orderedPhrases <*> otherPhrases)
+                          . splitToPhrases
   where
     orderedPhrases :: [String] -> [String]
     orderedPhrases ps   = phrOrder >>= elemByInd ps
@@ -182,16 +183,17 @@ orderLine phrOrder  = ((++) <$> orderedPhrases <*> otherPhrases) . splitToPhrase
     -- but not empty list. And, hence, list returned by orderLine will always
     -- contains otherPhrases as last (may be empty and may be only) element.
     otherPhrases :: [String] -> [String]
-    otherPhrases ps = (concat $ inlineSeps $ elemsByNotInds ps $ phrOrder) : []
+    otherPhrases ps = (concat $ inlineSeps sep $ elemsByNotInds ps $ phrOrder) : []
 
 -- Reorder phrases in each line according to column names list.  First line
--- must contain column names in current order (it will not be printed). Not
--- specified columns will be joined into one last phrase at each line.
+-- must contain column names in current order. Not specified columns will be
+-- joined into one last phrase at each line.
 reorderPhrases :: [String] -> [String] -> [[String]]
 reorderPhrases _ []                 = [[]]
-reorderPhrases colNames (refs : ls) = let phrOrder = phraseOrder refs colNames
-                                          --refs' = elemsByInds refs phrOrder
-                                      in  map (orderLine phrOrder) ls
+reorderPhrases colNames (ref : ls)  =
+    let phrOrder = phraseOrder ref colNames
+        ref' = concat $ inlineSeps refSep $ orderLine phrOrder refSep ref
+    in  [ref'] : map (orderLine phrOrder outPhrSep) ls
 
 putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
@@ -202,36 +204,108 @@ waitKey _           = getChar >> return ()
 
 -- Check that user entered correct phrase.
 checkAnswer :: String -> IO ()
+checkAnswer []      = return ()
 checkAnswer p       = do
                         r <- getLine
                         putStr $ checkPhrase r
   where
     checkPhrase :: String -> String
+    checkPhrase []      = " Ops: "
     checkPhrase r
-      | r' == p     = " Ura: "
-      | otherwise   = " Ops: "
-      where
-        -- Add separator to user response. Otherwise, i can't match literally.
-        r' :: String
-        r'          = last $ inlineSeps ("" : [r])
+      -- Reference phrase p is prefix by separator.
+      | isSuffixOf r p  = " Ura: "
+      | otherwise       = " Ops: "
+
+-- If i inline separators to all phrases, including empty, this
+--      - reveals non-existent last element ("other" phrases), when it's
+--      empty.
+-- If i inline separators before putLine, this
+--      - breaks checkAnswer check for empty phrase for do not asking user, if
+--      it has no key.
+--      - causes checkAnswer's answer ("ops" or "ura") to appear in the
+--      previous column instead of in the same column as word it checked
+--      against.
+-- If i inline separators, skipping empty elements, this
+--      - does not preserve column position in output (in case of previous
+--      columns was empty).
 
 -- Output phrases and execute specified action before every phrase in a line,
 -- except first. First is omitted, because it may be treated as question.
 putPhrases :: (String -> IO ()) -> [[String]] -> IO ()
-putPhrases f            = mapM_ (putLine . inlineSepsNE)
+putPhrases f               = mapM_ (putLine . inlineSeps outPhrSep)
   where
     putLine :: [String] -> IO ()
-    putLine []          = return ()
+    putLine []              = return ()
     putLine [xa]
-      | null xa         = return ()
-      | otherwise       = putStrF (xa ++ "\n")
-    putLine (xa : xs)   = do
-                            putStrF xa
-                            let (xs', [xb]) = splitAtEnd indBase xs
-                            mapM_ (\x -> f x >> putStrF x) xs'
-                            putStrF (xb ++ "\n")
+      | null xa             = return ()
+      | otherwise           = putStrF (xa ++ "\n")
+    putLine (xa : xs)       = do
+                                putStrF xa
+                                let (xs', [xb]) = splitAtEnd indBase xs
+                                mapM_ (\x -> f x >> putStrF x) xs'
+                                putStrF (xb ++ "\n")
 
--- FIXME: Print heading line, which shows current column order.
+waitKey1 :: String -> IO String
+waitKey1 _          = getChar >> return ""
+
+checkAnswer1 :: String -> IO String
+checkAnswer1 []     = return ""
+checkAnswer1 p      = do
+                        r <- getLine
+                        return (checkPhrase r)
+  where
+    checkPhrase :: String -> String
+    checkPhrase []      = " Ops: "
+    checkPhrase r
+      -- Reference phrase p is prefix by separator.
+      | isSuffixOf r p  = " Ura: "
+      | otherwise       = " Ops: "
+
+putPhrases1 :: (String -> IO String) -> [[String]] -> IO ()
+putPhrases1 f               = mapM_ putLine
+  where
+    putLine :: [String] -> IO ()
+    putLine []              = return ()
+    putLine [xa]
+      | null xa             = return ()
+      | otherwise           = putStrF (xa ++ "\n")
+    putLine (xa : xs)       = do
+                                putStrF xa
+                                let (xs', [xb]) = splitAtEnd indBase xs
+                                mapM_ (\x -> do
+                                    r <- f x
+                                    putStrF (outPhrSep ++ r ++ x)) xs'
+                                if null xb
+                                  then putStrF (xb ++ "\n")
+                                  else putStrF (outPhrSep ++ xb ++ "\n")
+    {-
+putPhrases1 f               = mapM_ (putLine >>= putStrF . inlineSeps outPhrSep)
+  where
+    putLine :: [String] -> IO [String]
+    putLine []              = return ""
+    putLine [xa]
+      | null xa             = return ""
+      | otherwise           = return (xa ++ "\n")
+    putLine (xa : xs)       =
+        (:) <$> return xa
+            <*> do
+                  let (xs', [xb]) = splitAtEnd indBase xs
+                  map (\x -> do
+                      r <- f x
+                      r ++ x)) xs'
+                  if null xb
+                    then putStrF (xb ++ "\n")
+                    else putStrF (outPhrSep ++ xb ++ "\n")-}
+    {-
+    putLine xl              = do
+                                let (xl', [xb]) = splitAtEnd indBase xl
+                                    (xa : xs') = inlineSeps outPhrSep xl'
+                                putStrF xa
+                                mapM_ (\x -> do
+                                    r <- f x
+                                    putStrF (r ++ x)) xs'
+                                putStrF (xb ++ "\n")-}
+
 -- FIXME: Makefile
 -- FIXME: Split index list and other library functions to separate file.
 -- FIXME: Match partial column names.
@@ -239,7 +313,6 @@ putPhrases f            = mapM_ (putLine . inlineSepsNE)
 -- FIXME: Import only required functions.
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
--- FIXME: readFile instead of bracket.
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.
 
@@ -250,16 +323,17 @@ putPhrases f            = mapM_ (putLine . inlineSepsNE)
 -- works however. So, double check column names in words file and on cmd!
 main                =  do
     (mode : file : colNames) <- getArgs
-    bracket (openFile file ReadMode)
-            hClose
-            (\h -> do
-                contents <- hGetContents h
-                hSetEcho stdin False
-                putPhrases (setMode mode) $ reorderPhrases colNames $ lines contents
-                putStrLn "Bye!")
+    contents <- readFile file
+    hSetEcho stdin False
+    putPhrases1 (setMode1 mode) $ reorderPhrases colNames $ lines contents
+    putStrLn "Bye!"
   where
     setMode :: String -> (String -> IO ())
     setMode xs
       | xs == "check"   = checkAnswer
       | otherwise       = waitKey
+    setMode1 :: String -> (String -> IO String)
+    setMode1 xs
+      | xs == "check"   = checkAnswer1
+      | otherwise       = waitKey1
 
