@@ -45,14 +45,17 @@ splitAtEndM i xs    = foldrM go ([], []) xs
 splitAtEnd :: Index -> [a] -> ([a], [a])
 splitAtEnd i xs         = fst $ runState (splitAtEndM i xs) indBase
 
+-- FIXME: Implement monadic splitBy, which can track State in supplied eq, and
+-- hence split by strings.
+
 -- Split list by separator (omitting separator itself).
-splitBy :: (Eq a) => a -> [a] -> [[a]]
-splitBy s []        = []
-splitBy s xs        = foldr go [[]] xs
+splitBy :: (a -> Bool) -> [a] -> [[a]]
+splitBy p []        = []
+splitBy p xs        = foldr go [[]] xs
   where
     go x zl@(z : zs)
-      | x == s       = [] : zl
-      | otherwise    = (x : z) : zs
+      | p x         = [] : zl
+      | otherwise   = (x : z) : zs
 
 -- END Split list. }}}
 -- Index list. {{{
@@ -127,11 +130,16 @@ indsByElem eq xs k      = indsByElems eq xs [k]
 
 -- END Index list. }}}
 
--- FIXME: Use string in inPhraseSep.
-data PhraseSep      = PhraseSep { inPhraseSep   :: Char
-                                , outPhraseSep  :: String
-                                , referenceSep  :: String
-                                }
+-- FIXME: Use string in inPhrSep.
+data PhrSep         = PhrSep { inPhraseSep   :: Char
+                             , outPhraseSep  :: String
+                             , referenceSep  :: String
+                             }
+  deriving (Show)
+
+-- First list contains ordered elements, second - other.
+data Line a         = Line [a] [a]
+  deriving (Show)
 
 -- Phrase separators.
 phrSep              = '-'
@@ -195,7 +203,7 @@ orderLine phrOrder inlSeps  = makeLine <$> orderedPhrases <*> otherPhrases
 -- columns will be joined into one last phrase at each line. First line is
 -- treated as "reference", i.e. containing column names in current order.
 -- It'll be also reordered to new order.
-reorderPhrases :: [String] -> PhraseSep -> [[String]] -> [[String]]
+reorderPhrases :: [String] -> PhrSep -> [[String]] -> [[String]]
 reorderPhrases colNames sep (refs : lss) =
     let lss'    = map (orderLine phrOrder inlPhrSeps) lss
     in  (newRefs : lss')
@@ -212,6 +220,40 @@ reorderPhrases colNames sep (refs : lss) =
                   in  (concat (inlRefSeps rs ++ rb)) : []
 reorderPhrases _ _ _    = [[]]
 
+-- New interface ;-)
+elemsOrder :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
+elemsOrder eq xs ks = ks >>= indsByElem eq xs
+
+orderLine1 :: [Index] -> [a] -> Line a
+orderLine1 order    = Line  <$> (\xs -> order >>= elemByInd xs)
+                            <*> (\xs -> elemsByNotInds xs order)
+
+-- f is some function, which should be applied to only ordered elements.  g is
+-- "joining" function. It is applied to all (ordered and others) elements,
+-- except first. E.g. it may add spaces to strings to make result suitable for
+-- concat.
+joinLine :: (a -> a) -> (a -> a) -> Line a -> [a]
+joinLine _ _ (Line []            [] ) = []
+joinLine _ g (Line []       (y : ys)) = y : map g ys
+joinLine f g (Line (x : xs)      ys ) = f x : (map (g . f) xs ++ map g ys)
+
+joinLineM :: (Monad m) => (a -> m a) -> (a -> m a) -> Line a -> [m a]
+joinLineM _ _ (Line [] [])       = []
+joinLineM _ g (Line [] (y : ys)) = return y : map g ys
+joinLineM f g (Line (x : xs) ys) = f x : (map (g <=< f) xs ++ map g ys)
+
+mapLine :: (a -> b) -> Line a -> Line b
+mapLine f (Line xs ys)  = Line (map f xs) (map f ys)
+
+reorderPhrases1 :: [String] -> PhrSep -> [[String]] -> [Line String]
+reorderPhrases1 colNames (PhrSep {referenceSep = rsp}) (refs : lss) =
+    let lss'    = map (orderLine1 phrOrder) lss
+        refs'   = joinLine id (rsp ++) $ orderLine1 phrOrder refs
+    in  ((Line [] refs') : lss')
+  where
+    phrOrder :: [Index]
+    phrOrder    = elemsOrder (==) refs colNames
+
 -- FIXME: Store line in reverse order. This will require one additional
 -- reverse before use, but speed up all other decompositions by splitAtEnd.
 
@@ -220,7 +262,7 @@ reorderPhrases _ _ _    = [[]]
 -- itself) and remove leading and trailing spaces from each phrase (inner
 -- spaces preserved).
 splitToPhrases :: Char -> String -> [String]
-splitToPhrases sep  = map dropSpaces . splitBy sep
+splitToPhrases sep  = map dropSpaces . splitBy (== sep)
   where
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
@@ -274,33 +316,26 @@ putPhrases f            = mapM_ putLine
                                 r <- f x
                                 putStrF (outPhrSep ++ r ++ x)) xs'
                             putStrF (xb ++ "\n")
-    {-
-putPhrases1 f               = mapM_ (putLine >>= putStrF . inlineSeps outPhrSep)
+
+waitKey1 :: String -> IO String
+waitKey1 p          = getChar >> return p
+
+checkAnswer1 :: String -> IO String
+checkAnswer1 []     = return ""
+checkAnswer1 p      = do
+                       r <- getLine
+                       return (checkPhrase r ++ p)
   where
-    putLine :: [String] -> IO [String]
-    putLine []              = return ""
-    putLine [xa]
-      | null xa             = return ""
-      | otherwise           = return (xa ++ "\n")
-    putLine (xa : xs)       =
-        (:) <$> return xa
-            <*> do
-                  let (xs', [xb]) = splitAtEnd indBase xs
-                  map (\x -> do
-                      r <- f x
-                      r ++ x)) xs'
-                  if null xb
-                    then putStrF (xb ++ "\n")
-                    else putStrF (outPhrSep ++ xb ++ "\n")-}
-    {-
-    putLine xl              = do
-                                let (xl', [xb]) = splitAtEnd indBase xl
-                                    (xa : xs') = inlineSeps outPhrSep xl'
-                                putStrF xa
-                                mapM_ (\x -> do
-                                    r <- f x
-                                    putStrF (r ++ x)) xs'
-                                putStrF (xb ++ "\n")-}
+    checkPhrase :: String -> String
+    checkPhrase r
+      | r == p      = " Ura! "
+      | otherwise   = " Ops! "
+
+putPhrases1 :: (String -> IO String) -> [Line String] -> IO ()
+putPhrases1 f       = mapM_ (\x -> sequence (putLine x) >> putStrF "\n")
+  where
+    putLine :: Line String -> [IO ()]
+    putLine         = map (\mx -> mx >>= putStrF) . joinLineM waitKey1 (return . (" : " ++))
 
 -- FIXME: splitAtEnd.. well, it's certainly really cool,
 -- FIXME: Makefile
@@ -322,8 +357,8 @@ main                =  do
     (mode : file : colNames) <- getArgs
     contents <- readFile file
     hSetEcho stdin False
-    putPhrases (setMode mode)
-        $ reorderPhrases colNames (PhraseSep '-' " : " " - ")
+    putPhrases1 (setMode mode)
+        $ reorderPhrases1 colNames (PhrSep '-' " : " " - ")
         $ map (splitToPhrases '-')
         $ lines contents
     putStrLn "Bye!"
