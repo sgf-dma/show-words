@@ -44,6 +44,10 @@ orderList :: [Index] -> [a] -> Line a
 orderList order     = Line  <$> (\xs -> order >>= elemByInd xs)
                             <*> (\xs -> elemsByNotInds xs order)
 
+-- map for Line datatype.
+mapLine :: (a -> b) -> Line a -> Line b
+mapLine f (Line xs ys)  = Line (map f xs) (map f ys)
+
 -- Convert Line to list and apply some functions to some elements.
 -- Function f applied to all ordered elements, except first (e.g. waiting for
 -- a key before outputting next element). 
@@ -55,9 +59,9 @@ joinLine _ _ (Line [] [])       = []
 joinLine _ g (Line [] (y : ys)) = y : map g ys
 joinLine f g (Line (x : xs) ys) = x : (map (g . f) xs ++ map g ys)
 
--- map for Line datatype.
-mapLine :: (a -> b) -> Line a -> Line b
-mapLine f (Line xs ys)  = Line (map f xs) (map f ys)
+joinLineM :: Monad m => (a -> m a) -> (a -> m a) -> Line a -> [m a]
+joinLineM f g       = joinLine (>>= f) (>>= g) . mapLine return
+
 
 -- Phrase separators.
 type Phrase         = String
@@ -68,20 +72,6 @@ data PhraseSeps     = PhraseSeps
                         }
   deriving (Show)
 
--- Convert list of lines (already split to phrases) into list of Line-s. This
--- will reorder phrases in lines according to supplied new column order. First
--- line treated as reference (heading) - column names in current order. It
--- will also be reordered.
-reorderPhrases :: [String] -> PhraseSeps -> [[Phrase]] -> [Line Phrase]
-reorderPhrases _ _ []   = []
-reorderPhrases colNames (PhraseSeps {referenceSp = rsp}) (refs : lss) =
-    let lss'    = map (orderList phrOrder) lss
-        refs'   = concat $ joinLine id (rsp ++) $ orderList phrOrder refs
-    in  (Line [] [refs']) : lss'
-  where
-    phrOrder :: [Index]
-    phrOrder    = elemsOrder (==) refs colNames
-
 -- Split each string to phrases by supplied character (omitting separator
 -- itself) and remove leading and trailing spaces from each phrase (inner
 -- spaces preserved).
@@ -91,11 +81,25 @@ splitToPhrases sep  = map dropSpaces . splitBy (== sep)
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
 
+-- Convert list of lines (already split to phrases) into list of Line-s. This
+-- will reorder phrases in lines according to supplied new column order. First
+-- line treated as reference (heading) - column names in current order. It
+-- will also be reordered.
+reorderPhrases :: [String] -> PhraseSeps -> [[Phrase]] -> [Line Phrase]
+reorderPhrases _ _ []   = []
+reorderPhrases colNames (PhraseSeps {referenceSp = rsp}) (refs : lss) =
+    let lss'    = map (orderList phrOrder) lss
+        refs'   = concat $ joinLine id (rsp ++) $ orderList phrOrder refs
+    in  (orderList [] [refs']) : lss'
+  where
+    phrOrder :: [Index]
+    phrOrder    = elemsOrder (==) refs colNames
+
 putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
 
 -- Wait for a key from user.
-waitKey :: String -> IO String
+waitKey :: a -> IO a
 waitKey p           = getChar >> return p
 
 -- Check that user entered correct phrase.
@@ -118,11 +122,10 @@ putPhrases :: (String -> IO String) -> PhraseSeps -> [Line Phrase] -> IO ()
 putPhrases f (PhraseSeps {outPhraseSp = sp})
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
-    putLine :: Line Phrase -> IO [()]
-    putLine         = sequence
+    putLine :: Line Phrase -> IO ()
+    putLine         = sequence_
                         . map (>>= putStrF)
-                        . joinLine (>>= f) ((sp ++) <$>)
-                        . mapLine return
+                        . joinLineM f (return . (sp ++))
 
 -- FIXME: Support meainings (subphrases). E.g. it may be seprated by comma and
 -- be different translations of a word.
@@ -173,7 +176,7 @@ testPhraseSeps          = PhraseSeps { inPhraseSp = '-'
 --   Incorrect column names silently skipped without any notification.  This
 -- may lead to nasty bugs, when all seems ok, but not works however. So,
 -- double check column names in words file and on cmd!
-main                =  do
+main                = do
     args <- getArgs
     (mode : file : colNames) <- parseArgs args
     contents <- readFile file
