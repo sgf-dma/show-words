@@ -129,8 +129,9 @@ putPhrases f (PhraseSeps {outPhraseSp = sp})
 -- FIXME: Use string in inPhraseSps. Maybe implement monadic splitBy, which
 -- can track State in supplied eq, and hence split by strings.
 -- FIXME: Match partial column names.
+-- FIXME: Add "reorder" mode, which is like "print", but do not waits key and
+-- just prints all file at once with applied column order.
 -- FIXME: Makefile
--- FIXME: Use foldrM from Data.Foldable ?
 -- FIXME: Import only required functions.
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
@@ -173,7 +174,8 @@ testPhraseSeps          = PhraseSeps { inPhraseSp = '-'
 -- may lead to nasty bugs, when all seems ok, but not works however. So,
 -- double check column names in words file and on cmd!
 main                =  do
-    (mode : file : colNames) <- getArgs
+    args <- getArgs
+    (mode : file : colNames) <- parseArgs args
     contents <- readFile file
     hSetEcho stdin False
     putPhrases (setMode mode) testPhraseSeps
@@ -182,6 +184,10 @@ main                =  do
         $ lines contents
     putStrLn "Bye!"
   where
+    parseArgs :: [String] -> IO [String]
+    parseArgs xs@(_ : _ : _)    = return xs
+    parseArgs _                 = fail $ "Too few arguments. "
+                                    ++ "Usage: ./show_words mode file [column_names]"
     setMode :: String -> (String -> IO String)
     setMode xs
       | xs == "check"   = checkAnswer
