@@ -44,6 +44,17 @@ orderList :: [Index] -> [a] -> Line a
 orderList order     = Line  <$> (\xs -> order >>= elemByInd xs)
                             <*> (\xs -> elemsByNotInds xs order)
 
+-- Convert list of lines (list of lists) into list of Line-s. This will
+-- reorder elements in lines according to supplied new column order. First
+-- line treated as reference (heading) and should contain column names in
+-- current order. It will also be reordered.
+orderColumns :: (a -> a -> Bool) -> [a] -> [[a]] -> [Line a]
+orderColumns _ _ []   = []
+orderColumns eq colNames lss@(refs : _) = map (orderList colOrder) lss
+  where
+    colOrder :: [Index]
+    colOrder        = elemsOrder eq refs colNames
+
 -- map for Line datatype.
 mapLine :: (a -> b) -> Line a -> Line b
 mapLine f (Line xs ys)  = Line (map f xs) (map f ys)
@@ -81,19 +92,11 @@ splitToPhrases sep  = map dropSpaces . splitBy (== sep)
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
 
--- Convert list of lines (already split to phrases) into list of Line-s. This
--- will reorder phrases in lines according to supplied new column order. First
--- line treated as reference (heading) - column names in current order. It
--- will also be reordered.
 reorderPhrases :: [String] -> PhraseSeps -> [[Phrase]] -> [Line Phrase]
-reorderPhrases _ _ []   = []
-reorderPhrases colNames (PhraseSeps {referenceSp = rsp}) (refs : lss) =
-    let lss'    = map (orderList phrOrder) lss
-        refs'   = concat $ joinLine id (rsp ++) $ orderList phrOrder refs
-    in  (orderList [] [refs']) : lss'
-  where
-    phrOrder :: [Index]
-    phrOrder    = elemsOrder (==) refs colNames
+reorderPhrases colNames (PhraseSeps {referenceSp = rsp}) lss    =
+    let (refs' : lss')  = orderColumns (==) colNames lss
+        ref'            = concat $ joinLine id (rsp ++) refs'
+    in  (orderList [] [ref']) : lss'
 
 putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
