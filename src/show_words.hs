@@ -3,7 +3,7 @@ import SgfListIndex
 import System.IO                -- For hX
 import System.Environment       -- For getArgs
 import Data.Char                -- For isSpace
---import Data.List                -- For groupBy
+import Data.List                -- For groupBy
 --import Data.Maybe               -- For fromJust
 --import Data.Monoid
 import Control.Applicative      -- For Applicative ((->) a).
@@ -55,9 +55,12 @@ orderColumns eq colNames lss@(refs : _) = map (orderList colOrder) lss
     colOrder :: [Index]
     colOrder        = elemsOrder eq refs colNames
 
--- map for Line datatype.
-mapLine :: (a -> b) -> Line a -> Line b
-mapLine f (Line xs ys)  = Line (map f xs) (map f ys)
+-- map function f over ordered elements and function g over other elements.
+mapLine :: (a -> b) -> (a -> b) -> Line a -> Line b
+mapLine f g (Line xs ys)   = Line (map f xs) (map g ys)
+
+mapLine1 :: (a -> b) -> Line a -> Line b
+mapLine1 f           = mapLine f f
 
 -- Convert Line to list and apply some functions to some elements.
 -- Function f applied to all ordered elements, except first (e.g. waiting for
@@ -71,18 +74,22 @@ joinLine _ g (Line [] (y : ys)) = y : map g ys
 joinLine f g (Line (x : xs) ys) = x : (map (g . f) xs ++ map g ys)
 
 joinLineM :: Monad m => (a -> m a) -> (a -> m a) -> Line a -> [m a]
-joinLineM f g       = joinLine (>>= f) (>>= g) . mapLine return
+joinLineM f g       = joinLine (>>= f) (>>= g) . mapLine1 return
 
-
--- Phrase separators.
+-- FIXME: Use type Column instead of Phrase and Phrase instead of Meaning.
 type Phrase         = String
-data PhraseSeps     = PhraseSeps
-                        { inPhraseSp  :: Char    -- Input separator.
-                        , outPhraseSp :: String  -- Output separator.
-                        , referenceSp :: String  -- Output heading separaror.
+type Meaning        = String
+-- Phrase separators.
+data PhraseSep      = PhraseSep
+                        { phraseSep  :: Char      -- Input phrase separator.
+                        , meaningSep :: Char      -- Input meaning separator.
+                        , outPhraseSep :: String  -- Output separator.
+                        , outMeaningSep :: String -- Output meaning separator.
+                        , referenceSep :: String  -- Output heading separaror.
                         }
   deriving (Show)
 
+-- FIXME: Rename to splitBy1.
 -- Split each string to phrases by supplied character (omitting separator
 -- itself) and remove leading and trailing spaces from each phrase (inner
 -- spaces preserved).
@@ -92,11 +99,74 @@ splitToPhrases sep  = map dropSpaces . splitBy (== sep)
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
 
-reorderPhrases :: [String] -> PhraseSeps -> [[Phrase]] -> [Line Phrase]
-reorderPhrases colNames (PhraseSeps {referenceSp = rsp}) lss    =
-    let (refs' : lss')  = orderColumns (==) colNames lss
+reorderPhrases :: [Phrase] -> PhraseSep -> [[Phrase]] -> [Line Phrase]
+reorderPhrases colNames (PhraseSep {referenceSep = rsp}) xss    =
+    let (refl' : xls')  = orderColumns (==) colNames xss
+        ref'            = concat $ joinLine id (rsp ++) refl'
+    in  (orderList [] [ref']) : xls'
+
+reorderPhrases1 :: [Phrase] -> PhraseSep -> [Line [Phrase]] -> [Line (Line Phrase)]
+reorderPhrases1 _ _ xls    = map (mapLine1 (orderList [])) xls
+
+reorderPhrases2 :: [Phrase] -> PhraseSep -> [String] -> [Line (Line Phrase)]
+reorderPhrases2 colNames (PhraseSep {referenceSep = rsp, phraseSep = sp}) xs =
+    let (refl' : xls')  = orderPhrases xs
+        ref'            = concat $ joinLine id (rsp ++) refl'
+        refl''          = mapLine1 (orderList []) $ orderList [] [[ref']]
+    in  refl'' : orderMeanings xls'
+  where
+    orderPhrases :: [String] -> [Line Phrase]
+    orderPhrases    = orderColumns (==) colNames . map (splitToPhrases sp)
+    orderMeanings :: [Line Phrase] -> [Line (Line Phrase)]
+    orderMeanings   = map (mapLine1 (orderList [] . splitToPhrases sp))
+
+{-
+map (mapLine1 (orderList []))    :: [Line (Line Phrase)]
+. (\(ref : ) -> [ref] : splitToPhrases) :: [Line [Phrase]]
+. makeRef                       :: [Line Phrase]
+. orderColumns (==) colNames    :: [Line Phrase]
+. map (splitToPhrases sp)       :: [[Phrase]]-}
+
+reorderPhrases3 :: [Phrase] -> PhraseSep -> [String] -> [Line (Line Meaning)]
+reorderPhrases3 colNames (PhraseSep { phraseSep = sp
+                                    , meaningSep = msp
+                                    , referenceSep = rsp}) =
+    --map (mapLine (\xs -> orderList (listIndices xs) xs) (orderList []))
+    map (mapLine (flip orderList <*> listIndices) (orderList [])) -- :: [Line (Line Phrase)]
+    . (\(ref : xs) -> mapLine1 (: []) ref : map splitToMeanings xs) -- :: [Line [Phrase]]
+    . makeRef                       -- :: [Line Phrase]
+    . orderColumns (==) colNames    -- :: [Line Phrase]
+    . map (splitToPhrases sp)       -- :: [[Phrase]]
+  where
+    makeRef :: [Line Phrase] -> [Line Phrase]
+    makeRef (refl : xs) = let ref' = concat $ joinLine id (rsp ++) refl
+                          in  (orderList [] [ref']) : xs
+    splitToMeanings :: Line Phrase -> Line [Meaning]
+    splitToMeanings = mapLine1 (splitToPhrases msp)
+
+reorderPhrases4 :: [Phrase] -> PhraseSep -> [String] -> [Line [Phrase]]
+reorderPhrases4 colNames (PhraseSep { phraseSep = sp
+                                    , meaningSep = msp
+                                    , referenceSep = rsp}) =
+    (\(ref : xs) -> mapLine1 (: []) ref : map splitToMeanings xs) -- :: [Line [Phrase]]
+    . makeRef                       -- :: [Line Phrase]
+    . orderColumns (==) colNames    -- :: [Line Phrase]
+    . map (splitToPhrases sp)       -- :: [[Phrase]]
+  where
+    makeRef :: [Line Phrase] -> [Line Phrase]
+    makeRef (refl : xs) = let ref' = concat $ joinLine id (rsp ++) refl
+                          in  (orderList [] [ref']) : xs
+    splitToMeanings :: Line Phrase -> Line [Meaning]
+    splitToMeanings = mapLine1 (splitToPhrases msp)
+
+{-
+reorderPhrases1 :: [Phrase] -> PhraseSep -> [String] -> [Line Phrase]
+reorderPhrases1 colNames (PhraseSep {referenceSep = rsp}) lss    =
+    let (refs' : lss')  = orderColumns (==) colNames $ map splitToPhrases) lss
         ref'            = concat $ joinLine id (rsp ++) refs'
-    in  (orderList [] [ref']) : lss'
+    in  (orderList [] [ref']) : lss'-}
+
+
 
 putStrF :: String -> IO ()
 putStrF x           = putStr x >> hFlush stdout
@@ -121,8 +191,8 @@ checkAnswer p       = do
 -- a line, except first. First is omitted, because it is treated as a
 -- question.  Other phrases will be outputted all at once and execution
 -- immediately porceeds to next line.
-putPhrases :: (String -> IO String) -> PhraseSeps -> [Line Phrase] -> IO ()
-putPhrases f (PhraseSeps {outPhraseSp = sp})
+putPhrases :: (String -> IO String) -> PhraseSep -> [Line Phrase] -> IO ()
+putPhrases f (PhraseSep {outPhraseSep = sp})
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
     putLine :: Line Phrase -> IO ()
@@ -130,13 +200,49 @@ putPhrases f (PhraseSeps {outPhraseSp = sp})
                         . map (>>= putStrF)
                         . joinLineM f (return . (sp ++))
 
+putPhrases4 :: (String -> IO String) -> PhraseSep -> [Line [Phrase]] -> IO ()
+putPhrases4 f (PhraseSep {outPhraseSep = sp, meaningSep = msp})
+                    = mapM_ (\x -> putLine x >> putStrF "\n")
+  where
+    putLine :: Line [Phrase] -> IO ()
+    putLine = sequence_
+                . map (>>= putStrF)
+                . concat
+                . map joinPhrases
+                . joinLine (map (>>= f)) joinColumns -- :: -> [[IO Phrase]]
+                           --(\(mx : mxs) -> return sp : mx : map ((", " ++) <$>) mxs)
+                           --(\(mx : mxs) -> ((sp ++) <$> mx) : map ((", " ++) <$>) mxs)
+                . mapLine1 (map return)
+      where
+        joinColumns :: [IO Phrase] -> [IO Phrase]
+        joinColumns []          = [return sp]
+        joinColumns (mx : mxs)  = ((sp ++) <$> mx) : mxs
+        joinPhrases :: [IO Phrase] -> [IO Phrase]
+        joinPhrases []          = []
+        joinPhrases (mx : mxs)  = mx : map ((", " ++) <$>) mxs
+
+{-
+putPhrases3 :: (String -> IO String) -> PhraseSep -> [Line (Line Meaning)] -> IO ()
+putPhrases3 f (PhraseSep {outPhraseSep = sp, outMeaningSep = msp})
+                    = mapM_ (\x -> putLine x >> putStrF "\n")
+  where
+    putLine :: Line (Line Meaning) -> IO ()
+    putLine         = sequence_
+                        . map (>>= putStrF)
+                        . joinLineM (>>= mapLine1 f) (return . (sp ++))-}
+
+-- FIXME: Use the same separators for input and output. Really, there is no
+-- sense in changing separatos - the one user wants should be in the file
+-- already. But this also mean, that reference in input will be separated by
+-- different char, And this also means, that separatos must already contain
+-- spaces, so it must be string.. ugh.
 -- FIXME: Support meainings (subphrases). E.g. it may be seprated by comma and
 -- be different translations of a word.
 -- FIXME: Use string in inPhraseSps. Maybe implement monadic splitBy, which
 -- can track State in supplied eq, and hence split by strings.
 -- FIXME: Match partial column names.
--- FIXME: Add "reorder" mode, which is like "print", but do not waits key and
--- just prints all file at once with applied column order.
+-- FIXME: Left main for user config and move all other code in functions and
+-- modules, like SgfPhrases, etc.
 -- FIXME: Makefile
 -- FIXME: Import only required functions.
 -- FIXME: utf8 support.
@@ -144,10 +250,12 @@ putPhrases f (PhraseSeps {outPhraseSp = sp})
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.
 
-testPhraseSeps          = PhraseSeps { inPhraseSp = '-'
-                             , outPhraseSp = " : "
-                             , referenceSp = " - "
-                             }
+testPhraseSep       = PhraseSep { phraseSep = '-'
+                                , meaningSep = ','
+                                , outPhraseSep = " : "
+                                , outMeaningSep = ", "
+                                , referenceSep = " - "
+                                }
 
 -- Usage: ./show_words mode file [column_names]
 --
@@ -184,10 +292,14 @@ main                = do
     (mode : file : colNames) <- parseArgs args
     contents <- readFile file
     hSetEcho stdin False
-    putPhrases (setMode mode) testPhraseSeps
-        $ reorderPhrases colNames testPhraseSeps
-        $ map (splitToPhrases '-')
+    putPhrases4 (setMode mode) testPhraseSep
+        $ reorderPhrases4 colNames testPhraseSep
         $ lines contents
+{-
+    putPhrases (setMode mode) testPhraseSep
+        $ reorderPhrases colNames testPhraseSep
+        $ map (splitToPhrases '-')
+        $ lines contents-}
     putStrLn "Bye!"
   where
     parseArgs :: [String] -> IO [String]
@@ -197,5 +309,6 @@ main                = do
     setMode :: String -> (String -> IO String)
     setMode xs
       | xs == "check"   = checkAnswer
-      | otherwise       = waitKey
+      | xs == "print"   = waitKey
+      | otherwise       = return
 

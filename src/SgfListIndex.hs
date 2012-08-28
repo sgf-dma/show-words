@@ -7,10 +7,21 @@ module SgfListIndex
     , indsByElems
     , elemByInd
     , indsByElem
-    , elemsOrder)
+    , elemsOrder
+    , listIndices)
   where
 
-import Data.Foldable (foldrM)
+--import Data.Foldable (foldrM)
+
+-- Reimplement list indexing part of Data.List using Backward State monad.
+
+foldrM                :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
+foldrM g z []         =  return z
+foldrM g z (x : xs)   =  foldrM g z xs >>= g x
+{-
+foldlM                :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
+foldlM g z []         =  return z
+foldlM g z (x : xs)   =  g z x >>= \z' -> foldlM g z' xs-}
 
 -- Index list.
 type Index          = Int
@@ -83,4 +94,19 @@ indsByElem eq xs k      = indsByElems eq xs [k]
 elemsOrder :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
 elemsOrder eq xs ks = ks >>= indsByElem eq xs
 
+-- Returns array of indexes for a list. This is identical to
+-- [1..(list_length)]. Note, that i don't need reverse here.
+listIndicesM :: [a] -> BState Index [Index]
+listIndicesM        = foldrM (\_ zs -> BState $ \s -> (s : zs, s + 1)) []
+listIndices :: [a] -> [Index]
+listIndices xs      = fst $ runBState (listIndicesM xs) indBase
+
+{-
+-- Version without monad.
+listIndices1 :: [a] -> [Index]
+listIndices1         = reverse . foldr go []
+  where
+    go :: a -> [Index] -> [Index]
+    go x []         = [indBase]
+    go x zs@(z : _) = z + 1 : zs-}
 
