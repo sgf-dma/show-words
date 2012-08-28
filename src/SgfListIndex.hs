@@ -17,7 +17,7 @@ module SgfListIndex
 -- Reimplement list indexing part of Data.List using Backward State monad.
 
 foldrM                :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
-foldrM g z []         =  return z
+foldrM _ z []         =  return z
 foldrM g z (x : xs)   =  foldrM g z xs >>= g x
 {-
 foldlM                :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
@@ -27,6 +27,7 @@ foldlM g z (x : xs)   =  g z x >>= \z' -> foldlM g z' xs-}
 -- Index list.
 type Index          = Int
 -- Start index.
+indBase :: Index
 indBase             = 1
 -- Backward state monad from "The essence of functional programming" by Philip
 -- Wadler.

@@ -5,7 +5,7 @@ import Data.Char                -- For isSpace
 import Data.List                -- For deleteFirstBy
 --import Data.Maybe               -- For fromJust
 --import Data.Monoid
-import Control.Applicative      -- For Applicative ((->) a).
+import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 --import Control.Monad
 import Control.Monad.State      -- For State monad.
 --import Control.Monad.Reader
@@ -18,15 +18,6 @@ import SgfListIndex
 -- On my system Data.List does not contain dropWhileEnd.
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
-
--- Split list by single element (separator), omitting separator itself.
-splitBy1 :: (a -> Bool) -> [a] -> [[a]]
-splitBy1 _ []       = []
-splitBy1 p xs       = foldr go [[]] xs
-  where
-    go x zl@(z : zs)
-      | p x         = [] : zl
-      | otherwise   = (x : z) : zs
 
 -- Split list by list (separator is list of elements), omitting separator
 -- itself, Note, that this function can't be implemented using Backward State
@@ -110,28 +101,24 @@ joinLineM f g       = joinLine (>>= f) (>>= g) . mapLine1 return
 
 type Column         = String
 type Phrase         = String
--- Input separators.
-data PhraseSep      = PhraseSep
+-- Input (and output) separators.
+data WordsSeps      = WordsSeps
                         { columnSep     :: String   -- Column separator.
                         , phraseSep     :: String   -- Phrase separator.
                         , referenceSep  :: String   -- Heading separaror.
-                        -- , outColumnSep :: String  -- Output separator.
-                        -- , outPhraseSep :: String -- Output meaning separator.
-                        -- , outReferenceSep :: String  -- Heading separaror.
                         }
   deriving (Show)
 
 -- Split input lines into columns, order columns (convert to Line-s) according
 -- to supplied new column order and split columns to phrases.
-reorderColumns :: [Column] -> PhraseSep -> [String] -> [Line [Phrase]]
-reorderColumns colNames (PhraseSep { columnSep = sp
+reorderColumns :: [Column] -> WordsSeps -> [String] -> [Line [Phrase]]
+reorderColumns colNames (WordsSeps { columnSep = sp
                                    , phraseSep = psp
                                    , referenceSep = rsp})
-                                   -- , outReferenceSep = orsp})
                     = splitToPhrases
                         . makeRef
-                        . orderColumns (==) colNames -- :: -> [Line Column]
-                        . splitToColumns             -- :: -> [[Column]]
+                        . orderColumns isPrefixOf colNames -- :: -> [Line Column]
+                        . splitToColumns                   -- :: -> [[Column]]
   where
     splitToColumns :: [String] -> [[Column]]
     splitToColumns []           = []
@@ -169,9 +156,8 @@ checkAnswer p       = do
 -- column, except first ordered column. First is omitted, because it is
 -- treated as a question.  Other columns (and phrases they contain) will be
 -- outputted all at once and execution immediately porceeds to next line.
-putPhrases :: (Phrase -> IO Phrase) -> PhraseSep -> [Line [Phrase]] -> IO ()
-putPhrases f (PhraseSep {columnSep = sp, phraseSep = psp})
--- {outColumnSep = sp, ouPhraseSep = psp})
+putPhrases :: (Phrase -> IO Phrase) -> WordsSeps -> [Line [Phrase]] -> IO ()
+putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
     putLine :: Line [Phrase] -> IO ()
@@ -189,31 +175,33 @@ putPhrases f (PhraseSep {columnSep = sp, phraseSep = psp})
         joinPhrases []          = []
         joinPhrases (mx : mxs)  = mx : map ((psp ++) <$>) mxs
 
--- FIXME: Move Line into module.
--- FIXME: Use the same separators for input and output. Really, there is no
--- sense in changing separatos - the one user wants should be in the file
--- already. But this also mean, that reference in input will be separated by
--- different char, And this also means, that separatos must already contain
--- spaces, so it must be string.. ugh.
--- FIXME: Use string in inPhraseSps. Maybe implement monadic splitBy1, which
--- can track State in supplied eq, and hence split by strings.
--- FIXME: Match partial column names.
--- FIXME: Left main for user config and move all other code in functions and
--- modules, like SgfPhrases, etc.
+showWords :: WordsSeps -> IO ()
+showWords wsp       = do
+    args <- getArgs
+    (mode : file : colNames) <- parseArgs args
+    contents <- readFile file
+    hSetEcho stdin False
+    putPhrases (setMode mode) wsp
+        $ reorderColumns colNames wsp
+        $ lines contents
+    putStrLn "Bye!"
+  where
+    parseArgs :: [String] -> IO [String]
+    parseArgs xs@(_ : _ : _)    = return xs
+    parseArgs _                 = fail $ "Too few arguments. "
+                                    ++ "Usage: ./show_words mode file [column_names]"
+    setMode :: String -> (String -> IO String)
+    setMode xs
+      | xs == "check"   = checkAnswer
+      | xs == "print"   = waitKey
+      | otherwise       = return
+
 -- FIXME: Makefile
 -- FIXME: Import only required functions.
 -- FIXME: utf8 support.
 -- FIXME: Bytestrings.
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.
-
-testPhraseSep       = PhraseSep { columnSep = " : "
-                                , phraseSep = ", "
-                                , referenceSep = " - "
-                                -- , outColumnSep = " : "
-                                -- , outPhraseSep = ", "
-                                -- , outReferenceSep = " - "
-                                }
 
 -- Usage: ./show_words mode file [column_names]
 --
@@ -245,62 +233,9 @@ testPhraseSep       = PhraseSep { columnSep = " : "
 --   Incorrect column names silently skipped without any notification.  This
 -- may lead to nasty bugs, when all seems ok, but not works however. So,
 -- double check column names in words file and on cmd!
-main                = do
-    args <- getArgs
-    (mode : file : colNames) <- parseArgs args
-    contents <- readFile file
-    hSetEcho stdin False
-    putPhrases (setMode mode) testPhraseSep
-        $ reorderColumns colNames testPhraseSep
-        $ lines contents
-    putStrLn "Bye!"
-  where
-    parseArgs :: [String] -> IO [String]
-    parseArgs xs@(_ : _ : _)    = return xs
-    parseArgs _                 = fail $ "Too few arguments. "
-                                    ++ "Usage: ./show_words mode file [column_names]"
-    setMode :: String -> (String -> IO String)
-    setMode xs
-      | xs == "check"   = checkAnswer
-      | xs == "print"   = waitKey
-      | otherwise       = return
-
-{-
--- Outdated code.
-
-reorderPhrases :: [Phrase] -> PhraseSep -> [[Phrase]] -> [Line Phrase]
-reorderPhrases colNames (PhraseSep {referenceSep = rsp}) xss    =
-    let (refl' : xls')  = orderColumns (==) colNames xss
-        ref'            = concat $ joinLine id (rsp ++) refl'
-    in  (orderList [] [ref']) : xls'
-
-putPhrases :: (String -> IO String) -> PhraseSep -> [Line Phrase] -> IO ()
-putPhrases f (PhraseSep {outPhraseSep = sp})
-                    = mapM_ (\x -> putLine x >> putStrF "\n")
-  where
-    putLine :: Line Phrase -> IO ()
-    putLine         = sequence_
-                        . map (>>= putStrF)
-                        . joinLineM f (return . (sp ++))
-
-main                = do
-    args <- getArgs
-    (mode : file : colNames) <- parseArgs args
-    contents <- readFile file
-    hSetEcho stdin False
-    putPhrases (setMode mode) testPhraseSep
-        $ reorderPhrases colNames testPhraseSep
-        $ map (splitToPhrases '-')
-        $ lines contents
-    putStrLn "Bye!"
-  where
-    parseArgs :: [String] -> IO [String]
-    parseArgs xs@(_ : _ : _)    = return xs
-    parseArgs _                 = fail $ "Too few arguments. "
-                                    ++ "Usage: ./show_words mode file [column_names]"
-    setMode :: String -> (String -> IO String)
-    setMode xs
-      | xs == "check"   = checkAnswer
-      | xs == "print"   = waitKey
-      | otherwise       = return -}
+main :: IO ()
+main                = showWords WordsSeps   { columnSep = " : "
+                                            , phraseSep = ", "
+                                            , referenceSep = " - "
+                                            }
 
