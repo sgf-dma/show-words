@@ -1,39 +1,62 @@
 
-import SgfListIndex
 import System.IO                -- For hX
 import System.Environment       -- For getArgs
 import Data.Char                -- For isSpace
---import Data.List                -- For groupBy
+import Data.List                -- For deleteFirstBy
 --import Data.Maybe               -- For fromJust
 --import Data.Monoid
 import Control.Applicative      -- For Applicative ((->) a).
 --import Control.Monad
---import Control.Monad.State      -- For State monad.
+import Control.Monad.State      -- For State monad.
 --import Control.Monad.Reader
 --import Control.Exception        -- For bracket.
 --import qualified Data.ByteString as S
 --import qualified Data.ByteString.Lazy as B
 
-
--- Reimplement some library functions :-)
+import SgfListIndex
 
 -- On my system Data.List does not contain dropWhileEnd.
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
 
--- Split list by separator (omitting separator itself).
-splitBy :: (a -> Bool) -> [a] -> [[a]]
-splitBy p []        = []
-splitBy p xs        = foldr go [[]] xs
+-- Split list by single element (separator), omitting separator itself.
+splitBy1 :: (a -> Bool) -> [a] -> [[a]]
+splitBy1 _ []       = []
+splitBy1 p xs       = foldr go [[]] xs
   where
     go x zl@(z : zs)
       | p x         = [] : zl
       | otherwise   = (x : z) : zs
 
+-- Split list by list (separator is list of elements), omitting separator
+-- itself, Note, that this function can't be implemented using Backward State
+-- monad (i think).
+splitBy :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
+splitBy eq sp xs   = let sp' = reverse sp
+                     in  fst $ runState (splitByM eq sp' xs) sp'
+
+splitByM :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
+splitByM _  _  []   = return []
+splitByM _  [] xs   = return [xs]
+splitByM eq sp xs   = foldrM go [[]] xs
+  where
+    -- Result (accumulator) will never be empty, this is matched by splitByM.
+    -- This is needed to not duplicate check code for [] case.
+    --go :: a -> [[a]] -> State [a] [[a]]
+    go x (z : zs)   = State f
+      where
+        -- State will never be [] (this case matched by splitByM).
+        --f :: [a] -> ([[a]], [a])
+        f [k]
+          | x `eq` k    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
+        f (k : ks)
+          | x `eq` k    = ((x : z) : zs, ks)
+          | otherwise   = ((x : z) : zs, sp)
+
 -- Split string by supplied character (omitting separator itself) and remove
 -- leading and trailing spaces from each substring (inner spaces preserved).
-splitStrBy :: Char -> String -> [String]
-splitStrBy sep      = map dropSpaces . splitBy (== sep)
+splitStrBy :: String -> String -> [String]
+splitStrBy sep      = map dropSpaces . splitBy (==) sep
   where
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
@@ -89,11 +112,12 @@ type Column         = String
 type Phrase         = String
 -- Input separators.
 data PhraseSep      = PhraseSep
-                        { columnSep  :: Char      -- Column separator.
-                        , phraseSep :: Char       -- Phrase separator.
-                        , referenceSep :: String  -- Heading separaror.
-                        , outPhraseSep :: String  -- Output separator.
-                        , outMeaningSep :: String -- Output meaning separator.
+                        { columnSep     :: String   -- Column separator.
+                        , phraseSep     :: String   -- Phrase separator.
+                        , referenceSep  :: String   -- Heading separaror.
+                        -- , outColumnSep :: String  -- Output separator.
+                        -- , outPhraseSep :: String -- Output meaning separator.
+                        -- , outReferenceSep :: String  -- Heading separaror.
                         }
   deriving (Show)
 
@@ -101,15 +125,17 @@ data PhraseSep      = PhraseSep
 -- to supplied new column order and split columns to phrases.
 reorderColumns :: [Column] -> PhraseSep -> [String] -> [Line [Phrase]]
 reorderColumns colNames (PhraseSep { columnSep = sp
-                                   , phraseSep = msp
+                                   , phraseSep = psp
                                    , referenceSep = rsp})
+                                   -- , outReferenceSep = orsp})
                     = splitToPhrases
                         . makeRef
-                        . orderColumns (==) colNames -- :: [Line Column]
-                        . splitToColumns             -- :: [[Column]]
+                        . orderColumns (==) colNames -- :: -> [Line Column]
+                        . splitToColumns             -- :: -> [[Column]]
   where
     splitToColumns :: [String] -> [[Column]]
-    splitToColumns  = map (splitStrBy sp)
+    splitToColumns []           = []
+    splitToColumns (ref : xs)   = splitStrBy rsp ref : map (splitStrBy sp) xs
     makeRef :: [Line Column] -> [Line Column]
     makeRef []          = []
     makeRef (refl : xs) = let ref' = concat $ joinLine id (rsp ++) refl
@@ -117,7 +143,7 @@ reorderColumns colNames (PhraseSep { columnSep = sp
     splitToPhrases :: [Line Column] -> [Line [Phrase]]
     splitToPhrases  []  = []
     splitToPhrases (ref : xs)
-                    = mapLine1 (: []) ref : map (mapLine1 (splitStrBy msp)) xs
+                    = mapLine1 (: []) ref : map (mapLine1 (splitStrBy psp)) xs
 
 
 putStrF :: String -> IO ()
@@ -144,7 +170,8 @@ checkAnswer p       = do
 -- treated as a question.  Other columns (and phrases they contain) will be
 -- outputted all at once and execution immediately porceeds to next line.
 putPhrases :: (Phrase -> IO Phrase) -> PhraseSep -> [Line [Phrase]] -> IO ()
-putPhrases f (PhraseSep {outPhraseSep = sp, phraseSep = msp})
+putPhrases f (PhraseSep {columnSep = sp, phraseSep = psp})
+-- {outColumnSep = sp, ouPhraseSep = psp})
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
     putLine :: Line [Phrase] -> IO ()
@@ -160,14 +187,15 @@ putPhrases f (PhraseSep {outPhraseSep = sp, phraseSep = msp})
         joinColumns (mx : mxs)  = ((sp ++) <$> mx) : mxs
         joinPhrases :: [IO Phrase] -> [IO Phrase]
         joinPhrases []          = []
-        joinPhrases (mx : mxs)  = mx : map ((", " ++) <$>) mxs
+        joinPhrases (mx : mxs)  = mx : map ((psp ++) <$>) mxs
 
+-- FIXME: Move Line into module.
 -- FIXME: Use the same separators for input and output. Really, there is no
 -- sense in changing separatos - the one user wants should be in the file
 -- already. But this also mean, that reference in input will be separated by
 -- different char, And this also means, that separatos must already contain
 -- spaces, so it must be string.. ugh.
--- FIXME: Use string in inPhraseSps. Maybe implement monadic splitBy, which
+-- FIXME: Use string in inPhraseSps. Maybe implement monadic splitBy1, which
 -- can track State in supplied eq, and hence split by strings.
 -- FIXME: Match partial column names.
 -- FIXME: Left main for user config and move all other code in functions and
@@ -179,11 +207,12 @@ putPhrases f (PhraseSep {outPhraseSep = sp, phraseSep = msp})
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.
 
-testPhraseSep       = PhraseSep { columnSep = '-'
-                                , phraseSep = ','
-                                , outPhraseSep = " : "
-                                , outMeaningSep = ", "
+testPhraseSep       = PhraseSep { columnSep = " : "
+                                , phraseSep = ", "
                                 , referenceSep = " - "
+                                -- , outColumnSep = " : "
+                                -- , outPhraseSep = ", "
+                                -- , outReferenceSep = " - "
                                 }
 
 -- Usage: ./show_words mode file [column_names]

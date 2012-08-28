@@ -1,6 +1,7 @@
 
 module SgfListIndex
     ( Index
+    , foldrM
     , indBase
     , elemsByInds
     , elemsByNotInds
