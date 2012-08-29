@@ -4,27 +4,19 @@ module ShowWords
     , showWords)
   where
 
-import System.IO                -- For hX
-import System.Environment       -- For getArgs
-import Data.Char                -- For isSpace
-import Data.List                -- For deleteFirstBy
---import Data.Maybe               -- For fromJust
---import Data.Monoid
+import System.IO                -- For hSetEcho, hFlush, stdin, stdout.
+import System.Environment       -- For getArgs.
+import Data.Char                -- For isSpace.
+import Data.List                -- For deleteFirstBy.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
---import Control.Monad
 import Control.Monad.State      -- For State monad.
---import Control.Monad.Reader
---import Control.Exception        -- For bracket.
---import qualified Data.ByteString as S
---import qualified Data.ByteString.Lazy as B
+import Codec.Binary.UTF8.String -- For encode.
+import qualified Data.ByteString.Lazy as B
 
 import SgfListIndex
 import SgfOrderedLine
 
 -- FIXME: Makefile
--- FIXME: Import only required functions.
--- FIXME: utf8 support.
--- FIXME: Bytestrings.
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.
 
@@ -43,20 +35,17 @@ splitBy eq sp xs   = let sp' = reverse sp
 splitByM :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
 splitByM _  _  []   = return []
 splitByM _  [] xs   = return [xs]
-splitByM eq sp xs   = foldrM go [[]] xs
+splitByM eq sp xs   = foldrM (\x -> State . f x) [[]] xs
   where
-    -- Result (accumulator) will never be empty, this is matched by splitByM.
-    -- This is needed to not duplicate check code for [] case.
-    --go :: a -> [[a]] -> State [a] [[a]]
-    go x (z : zs)   = State f
-      where
-        -- State will never be [] (this case matched by splitByM).
-        --f :: [a] -> ([[a]], [a])
-        f [k]
-          | x `eq` k    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
-        f (k : ks)
-          | x `eq` k    = ((x : z) : zs, ks)
-          | otherwise   = ((x : z) : zs, sp)
+    -- splitByM ensures, that state is not empty list (f itself never makes
+    -- state empty, the only possible case is empty initial state) and that
+    -- accumulator is not empty list.
+    --f :: a -> [[a]] -> [a] -> ([[a]], [a])
+    f x (z : zs) [k]
+      | x `eq` k    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
+    f x (z : zs) (k : ks)
+      | x `eq` k    = ((x : z) : zs, ks)
+      | otherwise   = ((x : z) : zs, sp)
 
 -- Split string by supplied character (omitting separator itself) and remove
 -- leading and trailing spaces from each substring (inner spaces preserved).
@@ -102,7 +91,9 @@ reorderColumns colNames (WordsSeps { columnSep = sp
 
 
 putStrF :: String -> IO ()
-putStrF x           = putStr x >> hFlush stdout
+putStrF x           = do
+                        B.putStr $ B.pack $ encode x
+                        hFlush stdout
 
 -- Wait for a key from user.
 waitKey :: a -> IO a
@@ -147,17 +138,21 @@ showWords :: WordsSeps -> IO ()
 showWords wsp       = do
     args <- getArgs
     (mode : file : colNames) <- parseArgs args
-    contents <- readFile file
+    contents <- readFile' file
     hSetEcho stdin False
     putPhrases (setMode mode) wsp
         $ reorderColumns colNames wsp
         $ lines contents
-    putStrLn "Bye!"
+    putStrF "Bye!\n"
   where
     parseArgs :: [String] -> IO [String]
     parseArgs xs@(_ : _ : _)    = return xs
     parseArgs _                 = fail $ "Too few arguments. "
                                     ++ "Usage: ./show_words mode file [column_names]"
+    readFile' :: FilePath -> IO String
+    readFile' file  = do
+        contents <- B.readFile file
+        return $ decode $ B.unpack contents
     setMode :: String -> (String -> IO String)
     setMode xs
       | xs == "check"   = checkAnswer
