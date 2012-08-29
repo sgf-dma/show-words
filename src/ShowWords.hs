@@ -16,7 +16,9 @@ import qualified Data.ByteString.Lazy as B
 import SgfListIndex
 import SgfOrderedLine
 
--- FIXME: Makefile
+-- FIXME: Tests.
+-- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
+-- with user.
 -- FIXME: Not literal match for separators?
 -- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.

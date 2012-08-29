@@ -21,9 +21,13 @@ objects := $(addprefix $(build_dir)/, $(notdir $(sources:.hs=.o))  Main.o)
 ifaces  := $(addprefix $(build_dir)/, $(notdir $(sources:.hs=.hi)) Main.hi)
 docs	:= README
 
+# I need to list all sources as prerequisitives in order to rebuild project,
+# if any changes. I need '%.hs' to make '$<' match to correct source file.
 # (see static pattern rules for details)
-$(prog) : $(build_dir)/% : %.hs
+$(prog) : $(build_dir)/% : %.hs $(sources)
 	$(GHC) $(ghc_flags) $(include_flags) --make $< -o $@
+# $(prog) : $(build_dir)/% : $(sources)
+#	$(GHC) $(ghc_flags) $(include_flags) --make src/$*.hs -o $@
 
 .PHONY: clean cleanobj cleanifaces
 clean : cleanobj cleanifaces
