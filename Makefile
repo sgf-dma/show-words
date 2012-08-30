@@ -15,8 +15,8 @@ vpath %.hs $(sources_dir)
 
 # Source filenames.
 prog	:= $(addprefix $(build_dir)/, $(prog))
-tmp_sources := $(addprefix $(sources_dir)/,)
-sources := $(filter-out $(tmp-sources), $(wildcard $(sources_dir)/*.hs))
+tmp_sources := $(addprefix $(sources_dir)/, utf8.hs opts.hs)
+sources := $(filter-out $(tmp_sources), $(wildcard $(sources_dir)/*.hs))
 objects := $(addprefix $(build_dir)/, $(notdir $(sources:.hs=.o))  Main.o)
 ifaces  := $(addprefix $(build_dir)/, $(notdir $(sources:.hs=.hi)) Main.hi)
 docs	:= README
@@ -35,3 +35,5 @@ cleanobj :
 cleanifaces :
 	$(RM) $(ifaces)
 
+echo :
+	echo ${sources}

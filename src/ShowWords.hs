@@ -5,14 +5,14 @@ module ShowWords
   where
 
 import System.IO                -- For hSetEcho, hFlush, stdin, stdout.
+import Codec.Binary.UTF8.String -- For encode, decode.
+import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
 import Data.Char                -- For isSpace.
 import Data.List                -- For deleteFirstBy.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 import Control.Monad.State      -- For State monad.
-import Codec.Binary.UTF8.String -- For encode, decode.
-import qualified Data.ByteString.Lazy as B
 import System.Random            -- For randomRs.
 
 import SgfListIndex
