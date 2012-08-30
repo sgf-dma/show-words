@@ -6,6 +6,7 @@ module ShowWords
 
 import System.IO                -- For hSetEcho, hFlush, stdin, stdout.
 import System.Environment       -- For getArgs.
+import System.Console.GetOpt    -- For getOpt.
 import Data.Char                -- For isSpace.
 import Data.List                -- For deleteFirstBy.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
@@ -13,16 +14,15 @@ import Control.Monad.State      -- For State monad.
 import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import System.Random            -- For randomRs.
-import System.Console.GetOpt    -- For getOpt.
 
 import SgfListIndex
 import SgfOrderedLine
 
 -- FIXME: Tests.
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
--- with user.
+-- with user..
 -- FIXME: Not literal match for separators?
--- FIXME: Diabled echo for "check" mode is not convenient. Though, if it is
+-- FIXME: Disabled echo for "check" mode is not convenient. Though, if it is
 -- enabled, newline will break all output.
 
 
@@ -119,14 +119,15 @@ reorderColumns colNames (WordsSeps { columnSep = sp
     splitToPhrases (ref : xs)
                     = mapLine1 (: []) ref : map (mapLine1 (splitStrBy psp)) xs
 
--- Shuffle lines.
-reorderLines :: [Line [Phrase]] -> IO [Line [Phrase]]
-reorderLines []     = return []
-reorderLines (x : xs)
-                    = do
-                        gen <- getStdGen
-                        _ <- newStdGen
-                        return (x : shuffleList gen xs)
+-- Shuffle (or not) lines.
+reorderLines :: String -> [Line [Phrase]] -> IO [Line [Phrase]]
+reorderLines _         []   = return []
+reorderLines lineOrder xl@(x : xs)
+  | lineOrder == "shuffle"  = do
+                                gen <- getStdGen
+                                _ <- newStdGen
+                                return (x : shuffleList gen xs)
+  | otherwise               = return xl
 
 
 putStrF :: String -> IO ()
@@ -219,16 +220,16 @@ setMode xs
   | otherwise       = return
 
 data Options        = Options
-                        { optMode    :: String -> IO String
-                        , optShuffle :: [Line [Phrase]] -> IO [Line [Phrase]]
-                        , optFile    :: FilePath
+                        { optMode      :: String -> IO String
+                        , optLineOrder :: String
+                        , optFile      :: FilePath
                         }
 
 defaultOpts :: Options
 defaultOpts         = Options
-                        { optMode    = setMode "default"
-                        , optShuffle = return
-                        , optFile    = "./words.txt"
+                        { optMode       = setMode "default"
+                        , optLineOrder  = "default"
+                        , optFile       = "./words.txt"
                         }
 
 optsDescr :: [OptDescr (Options -> Options)]
@@ -239,7 +240,7 @@ optsDescr =
                 "Set operation mode to MODE."
     , Option    ['s']
                 ["shuffle"]
-                (NoArg (\opt -> opt {optShuffle = reorderLines}))
+                (NoArg (\opt -> opt {optLineOrder = "shuffle"}))
                 "Shuffle lines."
     , Option    ['f']
                 ["file"]
@@ -261,12 +262,14 @@ showWords wsp       = do
     argv <- getArgs
     (Options
           { optMode = mode
-          , optShuffle = shuffle
+          , optLineOrder = lineOrder
           , optFile = file}
       , colNames) <- parseArgs argv
     contents <- readFile' file
     hSetEcho stdin False
-    xs <- shuffle $ reorderColumns colNames wsp $ lines contents
+    xs <- reorderLines lineOrder
+            $ reorderColumns colNames wsp
+            $ lines contents
     putPhrases mode wsp xs
     putStrF "Bye!\n"
   where
