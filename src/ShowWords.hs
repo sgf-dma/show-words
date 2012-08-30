@@ -10,15 +10,15 @@ import Data.Char                -- For isSpace.
 import Data.List                -- For deleteFirstBy.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 import Control.Monad.State      -- For State monad.
-import Codec.Binary.UTF8.String -- For encode.
+import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import System.Random            -- For randomRs.
+import System.Console.GetOpt    -- For getOpt.
 
 import SgfListIndex
 import SgfOrderedLine
 
 -- FIXME: Tests.
--- FIXME: Use getopt.
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
 -- with user.
 -- FIXME: Not literal match for separators?
@@ -119,6 +119,7 @@ reorderColumns colNames (WordsSeps { columnSep = sp
     splitToPhrases (ref : xs)
                     = mapLine1 (: []) ref : map (mapLine1 (splitStrBy psp)) xs
 
+-- Shuffle lines.
 reorderLines :: [Line [Phrase]] -> IO [Line [Phrase]]
 reorderLines []     = return []
 reorderLines (x : xs)
@@ -126,6 +127,7 @@ reorderLines (x : xs)
                         gen <- getStdGen
                         _ <- newStdGen
                         return (x : shuffleList gen xs)
+
 
 putStrF :: String -> IO ()
 putStrF x           = do
@@ -171,6 +173,7 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
         joinPhrases []          = []
         joinPhrases (mx : mxs)  = mx : map ((psp ++) <$>) mxs
 
+
 -- Usage: ./show_words mode file [column_names]
 --
 --   Show words (phrases) from file one by one in specified column order and
@@ -208,27 +211,67 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
 -- may lead to nasty bugs, when all seems ok, but not works however. So,
 -- double check column names in words file and on cmd!
 
+-- Set appropriate operation mode (how to put phrases) from string.
+setMode :: String -> (String -> IO String)
+setMode xs
+  | xs == "check"   = checkAnswer
+  | xs == "print"   = waitKey
+  | otherwise       = return
+
+data Options        = Options
+                        { optMode    :: String -> IO String
+                        , optShuffle :: [Line [Phrase]] -> IO [Line [Phrase]]
+                        , optFile    :: FilePath
+                        }
+
+defaultOpts :: Options
+defaultOpts         = Options
+                        { optMode    = setMode "default"
+                        , optShuffle = return
+                        , optFile    = "./words.txt"
+                        }
+
+optsDescr :: [OptDescr (Options -> Options)]
+optsDescr = 
+    [ Option    ['m']
+                ["mode"]
+                (ReqArg (\xs opt -> opt {optMode = setMode xs}) "MODE")
+                "Set operation mode to MODE."
+    , Option    ['s']
+                ["shuffle"]
+                (NoArg (\opt -> opt {optShuffle = reorderLines}))
+                "Shuffle lines."
+    , Option    ['f']
+                ["file"]
+                (ReqArg (\xs opt -> opt {optFile = xs}) "FILE")
+                "Read words from FILE (words.txt by default)."
+    ]
+
+-- Parse command-line arguments.
+parseArgs :: [String] -> IO (Options, [String])
+parseArgs argv      = do
+    case getOpt Permute optsDescr argv of
+      (xs, ys, [])  -> return (foldl (\z f -> f z) defaultOpts xs, ys)
+      (_, _, errs)  -> fail (concat errs ++ usageInfo header optsDescr)
+  where header      = "Usage: show_words [OPTION...] columnNames.."
+
+-- Show words (main function).
 showWords :: WordsSeps -> IO ()
 showWords wsp       = do
-    args <- getArgs
-    (mode : file : colNames) <- parseArgs args
+    argv <- getArgs
+    (Options
+          { optMode = mode
+          , optShuffle = shuffle
+          , optFile = file}
+      , colNames) <- parseArgs argv
     contents <- readFile' file
     hSetEcho stdin False
-    xs <- reorderLines $ reorderColumns colNames wsp $ lines contents
-    putPhrases (setMode mode) wsp xs
+    xs <- shuffle $ reorderColumns colNames wsp $ lines contents
+    putPhrases mode wsp xs
     putStrF "Bye!\n"
   where
-    parseArgs :: [String] -> IO [String]
-    parseArgs xs@(_ : _ : _)    = return xs
-    parseArgs _                 = fail $ "Too few arguments. "
-                                    ++ "Usage: ./show_words mode file [column_names]"
     readFile' :: FilePath -> IO String
     readFile' file  = do
         contents <- B.readFile file
         return $ decode $ B.unpack contents
-    setMode :: String -> (String -> IO String)
-    setMode xs
-      | xs == "check"   = checkAnswer
-      | xs == "print"   = waitKey
-      | otherwise       = return
 
