@@ -12,11 +12,13 @@ import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 import Control.Monad.State      -- For State monad.
 import Codec.Binary.UTF8.String -- For encode.
 import qualified Data.ByteString.Lazy as B
+import System.Random            -- For randomRs.
 
 import SgfListIndex
 import SgfOrderedLine
 
 -- FIXME: Tests.
+-- FIXME: Use getopt.
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
 -- with user.
 -- FIXME: Not literal match for separators?
@@ -58,6 +60,31 @@ splitStrBy sep      = map dropSpaces . splitBy (==) sep
     dropSpaces :: String -> String
     dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
 
+-- Pick from a list xs first occurences of all elements found in reference
+-- list ks.  Stop processing a list xs if all reference elements have found.
+-- Works with inifinity list xs, if it contain all elements from reference
+-- list ks.  May be used to make random transposition from randomRs output.
+transp :: (a -> a -> Bool) -> [a] -> [a] -> [a]
+transp eq ks xs     = fst $ runBState (transpM eq xs) ks
+
+transpM :: (a -> a -> Bool) -> [a] -> BState [a] [a]
+transpM eq          = foldrM (\x zs -> BState $ f x zs) []
+  where
+    --f :: a -> [a] -> [a] -> ([a], [a])
+    f _ _  []           = ([], [])
+    f x zs ks
+      | x `elem'` ks    = (x : zs, filter (not . (`eq` x)) ks)
+      | otherwise       = (zs, ks)
+      where
+        --elem' :: a -> [a] -> Bool
+        elem' k     = foldr (\y z -> if y `eq` k then True else z) False
+
+-- Shuffle list elements.
+shuffleList :: RandomGen g => g -> [a] -> [a]
+shuffleList g xs    = let lx = length xs
+                          ts = transp (==) (take lx [1..]) $ randomRs (1, lx) g
+                      in  ts >>= elemByInd xs
+
 
 type Column         = String
 type Phrase         = String
@@ -92,6 +119,13 @@ reorderColumns colNames (WordsSeps { columnSep = sp
     splitToPhrases (ref : xs)
                     = mapLine1 (: []) ref : map (mapLine1 (splitStrBy psp)) xs
 
+reorderLines :: [Line [Phrase]] -> IO [Line [Phrase]]
+reorderLines []     = return []
+reorderLines (x : xs)
+                    = do
+                        gen <- getStdGen
+                        _ <- newStdGen
+                        return (x : shuffleList gen xs)
 
 putStrF :: String -> IO ()
 putStrF x           = do
@@ -180,9 +214,8 @@ showWords wsp       = do
     (mode : file : colNames) <- parseArgs args
     contents <- readFile' file
     hSetEcho stdin False
-    putPhrases (setMode mode) wsp
-        $ reorderColumns colNames wsp
-        $ lines contents
+    xs <- reorderLines $ reorderColumns colNames wsp $ lines contents
+    putPhrases (setMode mode) wsp xs
     putStrF "Bye!\n"
   where
     parseArgs :: [String] -> IO [String]

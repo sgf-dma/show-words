@@ -1,6 +1,7 @@
 
 module SgfListIndex
     ( Index
+    , BState (..)
     , foldrM
     , indBase
     , elemsByInds
@@ -97,7 +98,10 @@ elemsOrder :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
 elemsOrder eq xs ks = ks >>= indsByElem eq xs
 
 -- Returns array of indexes for a list. This is identical to
--- [1..(list_length)]. Note, that i don't need reverse here.
+--
+--      take list_length [1..]
+--
+-- Note, that i don't need reverse here.
 listIndicesM :: [a] -> BState Index [Index]
 listIndicesM        = foldrM (\_ zs -> BState $ \s -> (s : zs, s + 1)) []
 listIndices :: [a] -> [Index]

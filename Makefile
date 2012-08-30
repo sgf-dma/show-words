@@ -26,8 +26,6 @@ docs	:= README
 # (see static pattern rules for details)
 $(prog) : $(build_dir)/% : %.hs $(sources)
 	$(GHC) $(ghc_flags) $(include_flags) --make $< -o $@
-# $(prog) : $(build_dir)/% : $(sources)
-#	$(GHC) $(ghc_flags) $(include_flags) --make src/$*.hs -o $@
 
 .PHONY: clean cleanobj cleanifaces
 clean : cleanobj cleanifaces
