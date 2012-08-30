@@ -19,6 +19,7 @@ import SgfListIndex
 import SgfOrderedLine
 
 -- FIXME: Tests.
+-- FIXME: I disabled prefix match for column names during testing.
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
 -- with user..
 -- FIXME: Not literal match for separators?
@@ -38,27 +39,23 @@ splitBy eq sp xs   = let sp' = reverse sp
                      in  fst $ runState (splitByM eq sp' xs) sp'
 
 splitByM :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
-splitByM _  _  []   = return []
-splitByM _  [] xs   = return [xs]
-splitByM eq sp xs   = foldrM (\x -> State . f x) [[]] xs
+splitByM _  _  []           = return []
+splitByM _  [] xs           = return [xs]
+splitByM eq sp@(k : ks) xs  = foldrM (\x -> State . f x) [[]] xs
   where
     -- splitByM ensures, that state is not empty list (f itself never makes
     -- state empty, the only possible case is empty initial state) and that
     -- accumulator is not empty list.
     --f :: a -> [[a]] -> [a] -> ([[a]], [a])
-    f x (z : zs) [k]
-      | x `eq` k    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
-    f x (z : zs) (k : ks)
+    f x (z : zs) [c]
+      | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
+    f x (z : zs) (c : cs)
+      | x `eq` c    = ((x : z) : zs, cs)
       | x `eq` k    = ((x : z) : zs, ks)
       | otherwise   = ((x : z) : zs, sp)
 
--- Split string by supplied character (omitting separator itself) and remove
--- leading and trailing spaces from each substring (inner spaces preserved).
-splitStrBy :: String -> String -> [String]
-splitStrBy sep      = map dropSpaces . splitBy (==) sep
-  where
-    dropSpaces :: String -> String
-    dropSpaces      = dropWhile isSpace . dropWhileEnd isSpace
+dropSpaces :: String -> String
+dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
 -- Pick from a list xs first occurences of all elements found in reference
 -- list ks.  Stop processing a list xs if all reference elements have found.
@@ -102,14 +99,18 @@ reorderColumns :: [Column] -> WordsSeps -> [String] -> [Line [Phrase]]
 reorderColumns colNames (WordsSeps { columnSep = sp
                                    , phraseSep = psp
                                    , referenceSep = rsp})
-                    = splitToPhrases
+                    = map (mapLine1 (map dropSpaces))
+                        . splitToPhrases
                         . makeRef
-                        . orderColumns isPrefixOf colNames -- :: -> [Line Column]
-                        . splitToColumns                   -- :: -> [[Column]]
+                        . orderColumns (==) colNames -- :: -> [Line Column]
+                        . splitToColumns             -- :: -> [[Column]]
   where
     splitToColumns :: [String] -> [[Column]]
-    splitToColumns []           = []
-    splitToColumns (ref : xs)   = splitStrBy rsp ref : map (splitStrBy sp) xs
+    splitToColumns []   = []
+    splitToColumns (ref : xs)
+                        = let ref'  = map dropSpaces $ splitBy (==) rsp ref
+                              xs'   = map (splitBy (==) sp) xs
+                          in  ref' : xs'
     makeRef :: [Line Column] -> [Line Column]
     makeRef []          = []
     makeRef (refl : xs) = let ref' = concat $ joinLine id (rsp ++) refl
@@ -117,7 +118,9 @@ reorderColumns colNames (WordsSeps { columnSep = sp
     splitToPhrases :: [Line Column] -> [Line [Phrase]]
     splitToPhrases  []  = []
     splitToPhrases (ref : xs)
-                    = mapLine1 (: []) ref : map (mapLine1 (splitStrBy psp)) xs
+                        = let ref' = mapLine1 (: []) ref
+                              xs'  = map (mapLine1 (splitBy (==) psp)) xs
+                          in  ref' : xs'
 
 -- Shuffle (or not) lines.
 reorderLines :: String -> [Line [Phrase]] -> IO [Line [Phrase]]
@@ -141,7 +144,6 @@ waitKey p           = getChar >> return p
 
 -- Check that user entered correct phrase.
 checkAnswer :: Phrase -> IO Phrase
-checkAnswer []      = return ""
 checkAnswer p       = do
                        r <- getLine
                        return (checkPhrase r ++ p)
@@ -164,9 +166,12 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
                 . map (>>= putStrF)
                 . concat
                 . map joinPhrases
-                . joinLine (map (>>= f)) joinColumns -- :: -> [[IO Phrase]]
-                . mapLine1 (map return)              -- :: -> Line [IO Phrase]
+                . joinLine (map (>>= f')) joinColumns -- :: -> [[IO Phrase]]
+                . mapLine1 (map return)               -- :: -> Line [IO Phrase]
       where
+        f' :: Phrase -> IO Phrase
+        f' []   = return []
+        f' xs   = f xs
         joinColumns :: [IO Phrase] -> [IO Phrase]
         joinColumns []          = [return sp]
         joinColumns (mx : mxs)  = ((sp ++) <$> mx) : mxs
@@ -213,14 +218,14 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
 -- double check column names in words file and on cmd!
 
 -- Set appropriate operation mode (how to put phrases) from string.
-setMode :: String -> (String -> IO String)
+setMode :: String -> (Phrase -> IO Phrase)
 setMode xs
   | xs == "check"   = checkAnswer
   | xs == "print"   = waitKey
   | otherwise       = return
 
 data Options        = Options
-                        { optMode      :: String -> IO String
+                        { optMode      :: Phrase -> IO Phrase
                         , optLineOrder :: String
                         , optFile      :: FilePath
                         }
