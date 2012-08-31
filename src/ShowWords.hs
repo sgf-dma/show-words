@@ -180,29 +180,37 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
         joinPhrases (mx : mxs)  = mx : map ((psp ++) <$>) mxs
 
 
--- Usage: ./show_words mode file [column_names]
+-- Usage: ./show_words [options..] [column_names]
 --
 --   Show words (phrases) from file one by one in specified column order and
 -- check your answers against next word.
 --
---      'mode' - operation mode:
---          - "print" for waiting for a key after each phrase in specified
---            columns,
+-- Options:
+--  -m, --mode MODE - set operation mode to MODE.
+--  -f, --file FILE - read words from file.
+--  -s              - shuffle input lines.
+--  where
+--      MODE - operation mode:
+--          - "print" for waiting for a key after each next phrase in
+--            specified columns.
 --          - "check" for checking user input against each next phrase in
 --            specified columns (literal check).
---      'file' - file with words.
---      [column_names] - any number of any column names (may be prefixes), one
---                       in one command line argument.
+--          - "reorder" just reorder columns and output all file at once. This
+--            is default.
+--      FILE - input file with words (words.txt is by default).
+--      [column_names] - any number of any column names, one in one command
+--                       line argument.
 --
 --   File must contain lines of words. Line may contain several columns
 -- separated by columnSep. Column may contain several phrases separated by
 -- phraseSep.  First line of file treated as heading (reference), and should
--- contain column names in current order separated by referenceSep.
+-- contain column names in current order separated by referenceSep. These
+-- separators defined in main.
 --
---   File will be displayed line by line in the specified columns order with
--- leading and trailing spaces of each column and each phrase deleted (inner
--- spaces preserved). You may specify desired column order at command line -
--- any column names (or just prefixes of column names) in any order.
+--   File will be displayed line by line, phrase by phrase in the specified
+-- columns order with leading and trailing spaces of each phrase deleted
+-- (inner spaces preserved). You may specify desired column order at command
+-- line: any column names in any order.
 --
 --   If there is at least two valid column names specified, first is treated
 -- as "question". Before every phrase in other (not first) specified columns
@@ -215,13 +223,14 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
 --
 --   Incorrect column names silently skipped without any notification.  This
 -- may lead to nasty bugs, when all seems ok, but not works however. So,
--- double check column names in words file and on cmd!
+-- double check column names in words file and on command line!
 
 -- Set appropriate operation mode (how to put phrases) from string.
 setMode :: String -> (Phrase -> IO Phrase)
 setMode xs
   | xs == "check"   = checkAnswer
   | xs == "print"   = waitKey
+--  | xs == "reorder" = return
   | otherwise       = return
 
 data Options        = Options
@@ -242,7 +251,8 @@ optsDescr =
     [ Option    ['m']
                 ["mode"]
                 (ReqArg (\xs opt -> opt {optMode = setMode xs}) "MODE")
-                "Set operation mode to MODE."
+                ("Set operation mode to MODE ('reorder' by default).\n"
+                    ++ "Valid values are 'print', 'check', 'reorder'.")
     , Option    ['s']
                 ["shuffle"]
                 (NoArg (\opt -> opt {optLineOrder = "shuffle"}))

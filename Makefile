@@ -35,5 +35,3 @@ cleanobj :
 cleanifaces :
 	$(RM) $(ifaces)
 
-echo :
-	echo ${sources}
