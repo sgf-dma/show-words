@@ -24,7 +24,7 @@ data Line a         = Line [a] [a]
 -- other elements.
 orderList :: [Index] -> [a] -> Line a
 orderList order     = Line  <$> (\xs -> order >>= elemByInd xs)
-                            <*> (\xs -> elemsByNotInds xs order)
+                            <*> (`elemsByNotInds` order)
 
 -- Convert list of lines (list of lists) into list of Line-s. This will
 -- reorder elements in lines according to supplied new column order. First

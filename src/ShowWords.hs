@@ -74,7 +74,7 @@ transpM eq          = foldrM (\x zs -> BState $ f x zs) []
       | otherwise       = (zs, ks)
       where
         --elem' :: a -> [a] -> Bool
-        elem' k     = foldr (\y z -> if y `eq` k then True else z) False
+        elem' k     = foldr (\y z -> (y `eq` k) || z) False
 
 -- Shuffle list elements.
 shuffleList :: RandomGen g => g -> [a] -> [a]
@@ -114,7 +114,7 @@ reorderColumns colNames (WordsSeps { columnSep = sp
     makeRef :: [Line Column] -> [Line Column]
     makeRef []          = []
     makeRef (refl : xs) = let ref' = concat $ joinLine id (rsp ++) refl
-                          in  (orderList [] [ref']) : xs
+                          in  orderList [] [ref'] : xs
     splitToPhrases :: [Line Column] -> [Line [Phrase]]
     splitToPhrases  []  = []
     splitToPhrases (ref : xs)
@@ -162,10 +162,8 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
     putLine :: Line [Phrase] -> IO ()
-    putLine = sequence_
-                . map (>>= putStrF)
-                . concat
-                . map joinPhrases
+    putLine = mapM_ (>>= putStrF)
+                . concatMap joinPhrases               -- :: -> [IO Phrase]
                 . joinLine (map (>>= f')) joinColumns -- :: -> [[IO Phrase]]
                 . mapLine1 (map return)               -- :: -> Line [IO Phrase]
       where
@@ -226,7 +224,7 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
 -- double check column names in words file and on command line!
 
 -- Set appropriate operation mode (how to put phrases) from string.
-setMode :: String -> (Phrase -> IO Phrase)
+setMode :: String -> Phrase -> IO Phrase
 setMode xs
   | xs == "check"   = checkAnswer
   | xs == "print"   = waitKey
@@ -265,10 +263,11 @@ optsDescr =
 
 -- Parse command-line arguments.
 parseArgs :: [String] -> IO (Options, [String])
-parseArgs argv      = do
-    case getOpt Permute optsDescr argv of
-      (xs, ys, [])  -> return (foldl (\z f -> f z) defaultOpts xs, ys)
-      (_, _, errs)  -> fail (concat errs ++ usageInfo header optsDescr)
+parseArgs argv      = case getOpt Permute optsDescr argv of
+                        (xs, ys, []) ->
+                            return (foldl (\z f -> f z) defaultOpts xs, ys)
+                        (_, _, errs) ->
+                            fail (concat errs ++ usageInfo header optsDescr)
   where header      = "Usage: show_words [OPTION...] columnNames.."
 
 -- Show words (main function).
