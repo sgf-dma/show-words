@@ -74,7 +74,7 @@ elemsByNotIndsM js  = foldrM (\x -> BState . notInds js x) []
 -- specified list have.
 indsByElemsM :: (a -> a -> Bool) -> [a] -> [a] -> BState Index [Index]
 indsByElemsM eq ks  = foldrM (\x -> BState . indsOfs elem' ks x) []
-  where elem' y     = foldr (\x z -> if x `eq` y then True else z) False
+  where elem' y     = foldr (\x z -> ((x `eq` y) || z)) False
 
 -- Unwrap monad from list indexing functions.
 elemsByInds :: [a] -> [Index] -> [a]
