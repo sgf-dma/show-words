@@ -93,37 +93,42 @@ data WordsSeps      = WordsSeps
                         }
   deriving (Show)
 
--- Split input lines into columns, order columns (convert to Line-s) according
--- to supplied new column order and split columns to phrases.
-reorderColumns :: [Column] -> WordsSeps -> [String] -> [Line [Phrase]]
-reorderColumns colNames (WordsSeps { columnSep = sp
-                                   , phraseSep = psp
-                                   , referenceSep = rsp})
-                    = map (mapLine1 (map dropSpaces))
-                        . splitToPhrases
-                        . makeRef
-                        . orderColumns (==) colNames -- :: -> [Line Column]
-                        . splitToColumns             -- :: -> [[Column]]
+-- Split input lines (strings) into columns. First line is treated as
+-- reference (heading) and referenceSep is used to split it. Other are split
+-- by columnSep.
+splitToColumns :: String -> String -> [String] -> [[Column]]
+splitToColumns _     _     []           = []
+splitToColumns refSp colSp (ref : xs)
+                    = let ref'  = splitBy (==) refSp ref
+                          xs'   = map (splitBy (==) colSp) xs
+                      in  ref' : xs'
+
+-- Order columns (convert to Line-s) according to supplied new column order.
+reorderColumns :: [Column] -> String -> [[Column]] -> [Line Column]
+reorderColumns _        _     []        = []
+reorderColumns colNames refSp (ref : xs)
+                        = let ref' = map dropSpaces ref
+                          in  makeRef $ orderColumns (==) colNames (ref' : xs)
   where
-    splitToColumns :: [String] -> [[Column]]
-    splitToColumns []   = []
-    splitToColumns (ref : xs)
-                        = let ref'  = map dropSpaces $ splitBy (==) rsp ref
-                              xs'   = map (splitBy (==) sp) xs
-                          in  ref' : xs'
+    -- I need to join reference into one "other" element (see Line
+    -- description) to output it at once without any actions have been
+    -- executed before.
     makeRef :: [Line Column] -> [Line Column]
     makeRef []          = []
-    makeRef (refl : xs) = let ref' = concat $ joinLine id (rsp ++) refl
-                          in  orderList [] [ref'] : xs
-    splitToPhrases :: [Line Column] -> [Line [Phrase]]
-    splitToPhrases  []  = []
-    splitToPhrases (ref : xs)
+    makeRef (refl : ys) = let ref' = concat $ joinLine id (refSp ++) refl
+                          in  orderList [] [ref'] : ys
+
+-- Split ordered columns (Line-s) into phrases. First line is treated as
+-- reference, and does not split into phrases.
+splitToPhrases :: String -> [Line Column] -> [Line [Phrase]]
+splitToPhrases _     [] = []
+splitToPhrases phrSp (ref : xs)
                         = let ref' = mapLine1 (: []) ref
-                              xs'  = map (mapLine1 (splitBy (==) psp)) xs
+                              xs'  = map (mapLine1 (splitBy (==) phrSp)) xs
                           in  ref' : xs'
 
 -- Shuffle (or not) lines.
-reorderLines :: String -> [Line [Phrase]] -> IO [Line [Phrase]]
+reorderLines :: String -> [Line a] -> IO [Line a]
 reorderLines _         []   = return []
 reorderLines lineOrder xl@(x : xs)
   | lineOrder == "shuffle"  = do
@@ -157,8 +162,8 @@ checkAnswer p       = do
 -- column, except first ordered column. First is omitted, because it is
 -- treated as a question.  Other columns (and phrases they contain) will be
 -- outputted all at once and execution immediately porceeds to next line.
-putPhrases :: (Phrase -> IO Phrase) -> WordsSeps -> [Line [Phrase]] -> IO ()
-putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
+putPhrases :: (Phrase -> IO Phrase) -> String -> String -> [Line [Phrase]] -> IO ()
+putPhrases f colSp phrSp
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
     putLine :: Line [Phrase] -> IO ()
@@ -171,11 +176,11 @@ putPhrases f (WordsSeps {columnSep = sp, phraseSep = psp})
         f' []   = return []
         f' xs   = f xs
         joinColumns :: [IO Phrase] -> [IO Phrase]
-        joinColumns []          = [return sp]
-        joinColumns (mx : mxs)  = ((sp ++) <$> mx) : mxs
+        joinColumns []          = [return colSp]
+        joinColumns (mx : mxs)  = ((colSp ++) <$> mx) : mxs
         joinPhrases :: [IO Phrase] -> [IO Phrase]
         joinPhrases []          = []
-        joinPhrases (mx : mxs)  = mx : map ((psp ++) <$>) mxs
+        joinPhrases (mx : mxs)  = mx : map ((phrSp ++) <$>) mxs
 
 
 -- Usage: ./show_words [options..] [column_names]
@@ -272,7 +277,10 @@ parseArgs argv      = case getOpt Permute optsDescr argv of
 
 -- Show words (main function).
 showWords :: WordsSeps -> IO ()
-showWords wsp       = do
+showWords (WordsSeps
+             { columnSep = colSp
+             , phraseSep = phrSp
+             , referenceSep = refSp}) = do
     argv <- getArgs
     (Options
           { optMode = mode
@@ -282,9 +290,12 @@ showWords wsp       = do
     contents <- readFile' file
     hSetEcho stdin False
     xs <- reorderLines lineOrder
-            $ reorderColumns colNames wsp
+            $ map (mapLine1 (map dropSpaces))
+            $ splitToPhrases phrSp
+            $ reorderColumns colNames refSp
+            $ splitToColumns refSp colSp
             $ lines contents
-    putPhrases mode wsp xs
+    putPhrases mode colSp phrSp xs
     putStrF "Bye!\n"
   where
     readFile' :: FilePath -> IO String
