@@ -18,6 +18,11 @@ import System.Random            -- For randomRs.
 import SgfListIndex
 import SgfOrderedLine
 
+-- FIXME: Multi-line output. Backsalsh as continuation.
+-- FIXME: Escape backslash with backslash.
+-- FIXME: Several output formats. Increase number of lines (on which one input
+-- line split).
+-- FIXME: Empty answer == skip answer, but do not check.
 -- FIXME: Tests.
 -- FIXME: I disabled prefix match for column names during testing.
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
