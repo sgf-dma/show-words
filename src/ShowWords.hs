@@ -15,7 +15,7 @@ import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 import Control.Monad.State      -- For State monad.
 import System.Random            -- For randomRs.
 
-import SgfListIndex
+import SgfList
 import SgfOrderedLine
 
 -- FIXME: Multi-line output. Backsalsh as continuation.
@@ -32,62 +32,6 @@ import SgfOrderedLine
 -- enabled, newline will break all output.
 
 
--- On my system Data.List does not contain dropWhileEnd.
-dropWhileEnd :: (a -> Bool) -> [a] -> [a]
-dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
-
--- Split list by list (separator is list of elements), omitting separator
--- itself, Note, that this function can't be implemented using Backward State
--- monad (i think).
-splitBy :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
-splitBy eq sp xs   = let sp' = reverse sp
-                     in  fst $ runState (splitByM eq sp' xs) sp'
-
-splitByM :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
-splitByM _  _  []           = return []
-splitByM _  [] xs           = return [xs]
-splitByM eq sp@(k : ks) xs  = foldrM (\x -> State . f x) [[]] xs
-  where
-    -- splitByM ensures, that state is not empty list (f itself never makes
-    -- state empty, the only possible case is empty initial state) and that
-    -- accumulator is not empty list.
-    --f :: a -> [[a]] -> [a] -> ([[a]], [a])
-    f x (z : zs) [c]
-      | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
-    f x (z : zs) (c : cs)
-      | x `eq` c    = ((x : z) : zs, cs)
-      | x `eq` k    = ((x : z) : zs, ks)
-      | otherwise   = ((x : z) : zs, sp)
-
-dropSpaces :: String -> String
-dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
-
--- Pick from a list xs first occurences of all elements found in reference
--- list ks.  Stop processing a list xs if all reference elements have found.
--- Works with inifinity list xs, if it contain all elements from reference
--- list ks.  May be used to make random transposition from randomRs output.
-transp :: (a -> a -> Bool) -> [a] -> [a] -> [a]
-transp eq ks xs     = fst $ runBState (transpM eq xs) ks
-
-transpM :: (a -> a -> Bool) -> [a] -> BState [a] [a]
-transpM eq          = foldrM (\x zs -> BState $ f x zs) []
-  where
-    --f :: a -> [a] -> [a] -> ([a], [a])
-    f _ _  []           = ([], [])
-    f x zs ks
-      | x `elem'` ks    = (x : zs, filter (not . (`eq` x)) ks)
-      | otherwise       = (zs, ks)
-      where
-        --elem' :: a -> [a] -> Bool
-        elem' k     = foldr (\y z -> (y `eq` k) || z) False
-
--- Shuffle list elements.
-shuffleList :: RandomGen g => g -> [a] -> [a]
-shuffleList g xs    = let lx = length xs
-                          ts = transp (==) (take lx [1..]) $ randomRs (1, lx) g
-                      in  ts >>= elemByInd xs
-
-
 type Column         = String
 type Phrase         = String
 -- Input (and output) separators.
@@ -97,6 +41,10 @@ data WordsSeps      = WordsSeps
                         , referenceSep  :: String   -- Heading separaror.
                         }
   deriving (Show)
+
+-- Drop leading and trailing spaces.
+dropSpaces :: String -> String
+dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
 -- Split input lines (strings) into columns. First line is treated as
 -- reference (heading) and referenceSep is used to split it. Other are split

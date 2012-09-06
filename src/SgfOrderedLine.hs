@@ -11,7 +11,7 @@ module SgfOrderedLine
 
 import Control.Applicative
 
-import SgfListIndex
+import SgfList
 
 -- Line represents idea of line divided into ordered elements (e.g. by
 -- elemsOrder) and other elements (remaining after ordering, i.e. not
