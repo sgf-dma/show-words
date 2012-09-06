@@ -10,9 +10,7 @@ import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
 import Data.Char                -- For isSpace.
-import Data.List                -- For deleteFirstBy.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
-import Control.Monad.State      -- For State monad.
 import System.Random            -- For randomRs.
 
 import SgfList
@@ -32,13 +30,14 @@ import SgfOrderedLine
 -- enabled, newline will break all output.
 
 
+type Sep            = String
 type Column         = String
 type Phrase         = String
 -- Input (and output) separators.
 data WordsSeps      = WordsSeps
-                        { columnSep     :: String   -- Column separator.
-                        , phraseSep     :: String   -- Phrase separator.
-                        , referenceSep  :: String   -- Heading separaror.
+                        { columnSep     :: Sep -- Column separator.
+                        , phraseSep     :: Sep -- Phrase separator.
+                        , referenceSep  :: Sep -- Heading separaror.
                         }
   deriving (Show)
 
@@ -46,18 +45,50 @@ data WordsSeps      = WordsSeps
 dropSpaces :: String -> String
 dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
+-- Determine whether string ends at unescaped backslash (escape character is
+-- also backslash) and in _any_ case remove all trailing backslashes.
+--
+-- FIXME: I'm not sure, whether i should remove all trailing backslashes every
+-- time or only last one and only if it's unescaped. After all, only the last
+-- unescaped backslash continues line, but others are just characters.
+contStr :: String -> (String, Bool)
+contStr             = foldr f ([], False)
+  where
+    f :: Char -> (String, Bool) -> (String, Bool)
+    f x ([], s)
+      | x == '\\'   = ([], not s)
+      | otherwise   = ([x], s)
+    f x (zs, s)     = (x : zs, s)
+
 -- Split input lines (strings) into columns. First line is treated as
 -- reference (heading) and referenceSep is used to split it. Other are split
--- by columnSep.
-splitToColumns :: String -> String -> [String] -> [[Column]]
-splitToColumns _     _     []           = []
+-- by columnSep. If at least one column in an input line ends with unescaped
+-- backslash (escape character is also backslash), i assume, that this line
+-- continues at following input line. In such case, following input line will
+-- be merged into preceding column by column. This particularly means, that if
+-- following input line has different number of columns (e.g. due to missed
+-- column separators) merge will most likely mess column contents. All
+-- trailing backslashes in any case will be removed from all columns.
+splitToColumns :: Sep -> Sep -> [String] -> [[Column]]
+splitToColumns _ _ []   = []
 splitToColumns refSp colSp (ref : xs)
-                    = let ref'  = splitBy (==) refSp ref
-                          xs'   = map (splitBy (==) colSp) xs
-                      in  ref' : xs'
+                        = let ref'  = splitBy (==) refSp ref
+                              xs'   = map (splitBy (==) colSp) xs
+                          in  foldr (f . contCols) [[]] (ref' : xs')
+  where
+    -- Check whether at least one of columns continued on next input line, and
+    -- in any case remove all trailing backslashes from all columns.
+    contCols :: [Column] -> ([Column], Bool)
+    contCols    = foldr (\(x, p) (zs, ps) -> (x : zs, p || ps)) ([], False)
+                    . map contStr
+    f :: ([Column], Bool) -> [[Column]] -> [[Column]]
+    f _ []          = undefined
+    f (x', p) (z : zs)
+      | p           = zipWith' (++) x' z : zs
+      | otherwise   = x' : z : zs
 
 -- Order columns (convert to Line-s) according to supplied new column order.
-reorderColumns :: [Column] -> String -> [[Column]] -> [Line Column]
+reorderColumns :: [Column] -> Sep -> [[Column]] -> [Line Column]
 reorderColumns _        _     []        = []
 reorderColumns colNames refSp (ref : xs)
                         = let ref' = map dropSpaces ref
@@ -73,7 +104,7 @@ reorderColumns colNames refSp (ref : xs)
 
 -- Split ordered columns (Line-s) into phrases. First line is treated as
 -- reference, and does not split into phrases.
-splitToPhrases :: String -> [Line Column] -> [Line [Phrase]]
+splitToPhrases :: Sep -> [Line Column] -> [Line [Phrase]]
 splitToPhrases _     [] = []
 splitToPhrases phrSp (ref : xs)
                         = let ref' = mapLine1 (: []) ref
@@ -115,7 +146,7 @@ checkAnswer p       = do
 -- column, except first ordered column. First is omitted, because it is
 -- treated as a question.  Other columns (and phrases they contain) will be
 -- outputted all at once and execution immediately porceeds to next line.
-putPhrases :: (Phrase -> IO Phrase) -> String -> String -> [Line [Phrase]] -> IO ()
+putPhrases :: (Phrase -> IO Phrase) -> Sep -> Sep -> [Line [Phrase]] -> IO ()
 putPhrases f colSp phrSp
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where

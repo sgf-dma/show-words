@@ -11,7 +11,8 @@ module SgfList
     , dropWhileEnd
     , splitBy
     , transp
-    , shuffleList)
+    , shuffleList
+    , zipWith')
   where
 
 import Data.List (deleteFirstsBy)
@@ -25,9 +26,10 @@ import Control.Monad.State
 foldrM                :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
 foldrM _ z []         =  return z
 foldrM g z (x : xs)   =  foldrM g z xs >>= g x
+{-
 foldlM                :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
-foldlM g z []         =  return z
-foldlM g z (x : xs)   =  g z x >>= \z' -> foldlM g z' xs
+foldlM _ z []         =  return z
+foldlM g z (x : xs)   =  g z x >>= \z' -> foldlM g z' xs-}
 -- Backward state monad from "The essence of functional programming" by Philip
 -- Wadler.
 newtype BState s a  =  BState {runBState :: (s -> (a, s))}
@@ -127,6 +129,8 @@ splitByM eq sp@(k : ks) xs  = foldrM (\x -> State . f x) [[]] xs
     -- state empty, the only possible case is empty initial state) and that
     -- accumulator is not empty list.
     --f :: a -> [[a]] -> [a] -> ([[a]], [a])
+    f _ [] _        = undefined
+    f _ _ []        = undefined
     f x (z : zs) [c]
       | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
     f x (z : zs) (c : cs)
@@ -161,4 +165,13 @@ shuffleList :: RandomGen g => g -> [a] -> [a]
 shuffleList g xs    = let lx = length xs
                           ts = transp (==) (take lx [1..]) $ randomRs (1, lx) g
                       in  ts >>= elemByInd xs
+
+-- Zipping.
+--
+-- Instead of discarding longer tail (like zipWith do), add it to the result
+-- as is.
+zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
+zipWith' _ xs []                = xs
+zipWith' _ [] ys                = ys
+zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 

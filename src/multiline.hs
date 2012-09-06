@@ -35,13 +35,6 @@ strCont' xs       = runState (foldrM (\x -> State . f x) [] xs) False
       | otherwise   = ([x], s)
     f x zs s        = (x : zs, s)-}
 
--- Instead of discarding longer tail (like zipWith do), add it to the result
--- as is.
-zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
-zipWith' _ xs []                = xs
-zipWith' _ [] ys                = ys
-zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
-
 mergeLines :: [[String]] -> [[String]]
 mergeLines []       = []
 mergeLines xs       = foldr (\x (z : zs) ->
@@ -58,6 +51,10 @@ mergeLines2 :: [[String]] -> [[String]]
 mergeLines2 []      = []
 mergeLines2 xs      = foldr go [[]] xs
   where
+    go x []         = let (x', p') = lineCont x
+                      in  if p'
+                            then zipWith' (++) x' [] : []
+                            else [x]
     go x (z : zs)   = let (x', p') = lineCont x
                       in  if p'
                             then zipWith' (++) x' z : zs
