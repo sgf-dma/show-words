@@ -2,10 +2,7 @@
 import Control.Applicative
 import Control.Monad.State
 
-import SgfListIndex
-
-dropWhileEnd :: (a -> Bool) -> [a] -> [a]
-dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
+import SgfList
 
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash).
@@ -19,8 +16,8 @@ lineCont            = foldl f False
 
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash) and remove trailing backslash sequence.
-lineCont2 :: String -> (String, Bool)
-lineCont2 xs        = foldr f ([], False) xs
+strCont :: String -> (String, Bool)
+strCont xs          = foldr f ([], False) xs
   where
     f :: Char -> (String, Bool) -> (String, Bool)
     f x ([], s)
@@ -29,8 +26,8 @@ lineCont2 xs        = foldr f ([], False) xs
     f x (zs, s)     = (x : zs, s)
 
 {-
-lineCont2' :: String -> (String, Bool)
-lineCont2' xs       = runState (foldrM (\x -> State . f x) [] xs) False
+strCont' :: String -> (String, Bool)
+strCont' xs       = runState (foldrM (\x -> State . f x) [] xs) False
   where
     f :: Char -> String -> Bool -> (String, Bool)
     f x [] s
@@ -38,7 +35,8 @@ lineCont2' xs       = runState (foldrM (\x -> State . f x) [] xs) False
       | otherwise   = ([x], s)
     f x zs s        = (x : zs, s)-}
 
--- Add longer tail to the result as is instead of discarding it (like zipWith do).
+-- Instead of discarding longer tail (like zipWith do), add it to the result
+-- as is.
 zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
 zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
@@ -58,14 +56,13 @@ mergeLines xs       = foldr (\x (z : zs) ->
 
 mergeLines2 :: [[String]] -> [[String]]
 mergeLines2 []      = []
-mergeLines2 xs      = foldr (\x (z : zs) ->
-                             let (x', p') = checkLine x
-                             in  if p' then zipWith' (++) x' z : zs
-                                   else x : z : zs)
-                            [[]]
-                            xs
+mergeLines2 xs      = foldr go [[]] xs
   where
-    checkLine :: [String] -> ([String], Bool)
-    checkLine       = foldr (\(x, p) (zs, ps) -> (x : zs, p || ps)) ([], False)
-                        . map lineCont2
+    go x (z : zs)   = let (x', p') = lineCont x
+                      in  if p'
+                            then zipWith' (++) x' z : zs
+                            else x : z : zs
+    lineCont :: [String] -> ([String], Bool)
+    lineCont        = foldr (\(x, p) (zs, ps) -> (x : zs, p || ps)) ([], False)
+                        . map strCont
 
