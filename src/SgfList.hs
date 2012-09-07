@@ -55,63 +55,59 @@ indBase             = 1
 
 -- Folding functions for use in State monads for indexing list.
 -- 
--- Add list element x to the accumulator z only if its index s equals to i.
-onlyInds :: [Index] -> a -> [a] -> Index -> ([a], Index)
-onlyInds js x z     = \s -> let z' = if s `elem` js then x : z else z
-                            in  (z', s + 1)
+-- Add list element x to the accumulator z only if its index s satisfies
+-- predicate.
+onlyInds :: (Index -> Bool) -> a -> [a] -> Index -> ([a], Index)
+onlyInds p x z s
+  | p s             = (x : z, s + 1)
+  | otherwise       = (z, s + 1)
 
--- Complement to onlyInd. Add each list elements x to accumulator z if its
--- index s not equals to i.
-notInds :: [Index] -> a -> [a] -> Index -> ([a], Index)
-notInds js x z      = \s -> let z' = if s `notElem` js then x : z else z
-                            in  (z', s + 1)
-
-indsOfs :: (a -> [a] -> Bool)
-        -> [a] -> a -> [Index] -> Index -> ([Index], Index)
-indsOfs elem' ks x z  = \s -> let z' = if x `elem'` ks then s : z else z
-                              in  (z', s + 1)
+-- Reverse of onlyInds: add list index s to the accumulator only if its
+-- element x satisfies predicate.
+onlyElems :: (a -> Bool) -> a -> [Index] -> Index -> ([Index], Index)
+onlyElems p x z s
+  | p x             = (s : z, s + 1)
+  | otherwise       = (z, s + 1)
 
 -- Index list by right folding it inside Backward State monad.
 --
--- Choose all elements from list which indexes are in the specified index
--- list.
+-- Find all elements with specified indexes.
 elemsByIndsM :: (F.Foldable t) => [Index] -> t a -> BState Index [a]
-elemsByIndsM js     = F.foldrM (\x -> BState . onlyInds js x) []
+elemsByIndsM js     = F.foldrM (\x -> BState . onlyInds (`elem` js) x) []
 
--- Complement to elemsByInds. Choose all elements from list which indexes are
--- not in the sepcified index list.
+-- Complement to elemsByInds. Find all elements with _not_ specified indexes.
 elemsByNotIndsM :: (F.Foldable t) => [Index] -> t a -> BState Index [a]
-elemsByNotIndsM js  = F.foldrM (\x -> BState . notInds js x) []
+elemsByNotIndsM js  = F.foldrM (\x -> BState . onlyInds (`notElem` js) x) []
 
--- Reverse of elemsByInds. Choose all indexes, which elements from the
--- specified list have.
-indsByElemsM :: (F.Foldable t) =>
-                (a -> a -> Bool) -> [a] -> t a -> BState Index [Index]
-indsByElemsM eq ks  = F.foldrM (\x -> BState . indsOfs (any . eq) ks x) []
-  -- elem' y     = foldr (\x z -> ((x `eq` y) || z)) False
--- FIXME: elem' = any?
+-- Reverse of elemsByInds. Find all indexes of specified elements.
+indsByElemsM :: (F.Foldable t, F.Foldable t1) =>
+                (a -> a -> Bool) -> t1 a -> t a -> BState Index [Index]
+indsByElemsM eq ks  = F.foldrM (\x -> BState . onlyElems p x) []
+  where p x         = F.any (`eq` x) ks
 
 -- Unwrap monad from list indexing functions.
 elemsByInds :: (F.Foldable t) => t a -> [Index] -> [a]
-elemsByInds xs js       = fst $ runBState (elemsByIndsM js xs) indBase
+elemsByInds xs js       = fst . runBState (elemsByIndsM js xs) $ indBase
 
 elemsByNotInds :: (F.Foldable t) => t a -> [Index] -> [a]
-elemsByNotInds xs js    = fst $ runBState (elemsByNotIndsM js xs) indBase
+elemsByNotInds xs js    = fst . runBState (elemsByNotIndsM js xs) $ indBase
 
-indsByElems :: (F.Foldable t) => (a -> a -> Bool) -> t a -> [a] -> [Index]
-indsByElems eq xs ks    = fst $ runBState (indsByElemsM eq ks xs) indBase
+indsByElems :: (F.Foldable t, F.Foldable t1) =>
+               (a -> a -> Bool) -> t a -> t1 a -> [Index]
+indsByElems eq xs ks    = fst . runBState (indsByElemsM eq ks xs) $ indBase
 
--- Some specific "instances" of above functions.
+-- Some more specific "instances" of above functions.
 elemByInd :: (F.Foldable t) => t a -> Index -> [a]
-elemByInd xs j          = elemsByInds xs [j]
+elemByInd xs j      = elemsByInds xs [j]
 
 indsByElem :: (F.Foldable t) => (a -> a -> Bool) -> t a -> a -> [Index]
-indsByElem eq xs k      = indsByElems eq xs [k]
+indsByElem eq xs k  = indsByElems eq xs [k]
 
 -- Convert list of elements into list of corresponding indexes in "reference"
 -- list (preserving order of elements).
-elemsOrder :: (F.Foldable t) => (a -> a -> Bool) -> t a -> [a] -> [Index]
-elemsOrder eq xs ks = ks >>= indsByElem eq xs
+elemsOrder :: (F.Foldable t, F.Foldable t1) =>
+              (a -> a -> Bool) -> t a -> t1 a -> [Index]
+elemsOrder eq       = F.concatMap . indsByElem eq
 
 
 -- Sublists.
