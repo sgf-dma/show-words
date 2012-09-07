@@ -1,6 +1,7 @@
 
 module SgfList
-    ( Index
+    ( BState (..)
+    , Index
     , indBase
     , elemsByInds
     , elemsByNotInds
@@ -15,31 +16,34 @@ module SgfList
     , zipWith')
   where
 
+import qualified Data.Foldable as F
 import Data.List (deleteFirstsBy)
 import System.Random (RandomGen, randomRs)
 import Control.Monad.State
---import Data.Foldable (foldrM)
 
 -- Reimplement list indexing part of Data.List using Backward State monad. And
 -- some more useful functions for lists using State monads.
 
-foldrM                :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
-foldrM _ z []         =  return z
-foldrM g z (x : xs)   =  foldrM g z xs >>= g x
 {-
-foldlM                :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
-foldlM _ z []         =  return z
-foldlM g z (x : xs)   =  g z x >>= \z' -> foldlM g z' xs-}
+foldrM :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
+foldrM _ z []         = return z
+foldrM g z (x : xs)   = foldrM g z xs >>= g x
+foldrM :: (F.Foldable t, Monad m) => (a -> b -> m b) -> b -> t a -> m b
+foldrM g z xs       = F.foldr (\x mz -> mz >>= g x) (return z) xs-}
+{-
+foldlM :: (F.Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m b
+foldlM _ z []         = return z
+foldlM g z (x : xs)   = g z x >>= \z' -> foldlM g z' xs-}
 -- Backward state monad from "The essence of functional programming" by Philip
 -- Wadler.
-newtype BState s a  =  BState {runBState :: (s -> (a, s))}
+newtype BState s a  = BState {runBState :: (s -> (a, s))}
 instance Monad (BState s) where
-    return x        =  BState (\s -> (x, s))
-    BState m >>= f  =  BState $ \s2 ->
-                        let (x, s0)   = m s1
-                            BState m' = f x
-                            (x', s1)  = m' s2
-                        in  (x', s0)
+    return x        = BState (\s -> (x, s))
+    BState m >>= f  = BState $ \s2 ->
+                       let (x, s0)   = m s1
+                           BState m' = f x
+                           (x', s1)  = m' s2
+                       in  (x', s0)
 
 
 -- Index list.
@@ -62,7 +66,8 @@ notInds :: [Index] -> a -> [a] -> Index -> ([a], Index)
 notInds js x z      = \s -> let z' = if s `notElem` js then x : z else z
                             in  (z', s + 1)
 
-indsOfs :: (a -> [a] -> Bool) -> [a] -> a -> [Index] -> Index -> ([Index], Index)
+indsOfs :: (a -> [a] -> Bool)
+        -> [a] -> a -> [Index] -> Index -> ([Index], Index)
 indsOfs elem' ks x z  = \s -> let z' = if x `elem'` ks then s : z else z
                               in  (z', s + 1)
 
@@ -70,40 +75,42 @@ indsOfs elem' ks x z  = \s -> let z' = if x `elem'` ks then s : z else z
 --
 -- Choose all elements from list which indexes are in the specified index
 -- list.
-elemsByIndsM :: [Index] -> [a] -> BState Index [a]
-elemsByIndsM js     = foldrM (\x -> BState . onlyInds js x) []
+elemsByIndsM :: (F.Foldable t) => [Index] -> t a -> BState Index [a]
+elemsByIndsM js     = F.foldrM (\x -> BState . onlyInds js x) []
 
 -- Complement to elemsByInds. Choose all elements from list which indexes are
 -- not in the sepcified index list.
-elemsByNotIndsM :: [Index] -> [a] -> BState Index [a]
-elemsByNotIndsM js  = foldrM (\x -> BState . notInds js x) []
+elemsByNotIndsM :: (F.Foldable t) => [Index] -> t a -> BState Index [a]
+elemsByNotIndsM js  = F.foldrM (\x -> BState . notInds js x) []
 
 -- Reverse of elemsByInds. Choose all indexes, which elements from the
 -- specified list have.
-indsByElemsM :: (a -> a -> Bool) -> [a] -> [a] -> BState Index [Index]
-indsByElemsM eq ks  = foldrM (\x -> BState . indsOfs elem' ks x) []
-  where elem' y     = foldr (\x z -> ((x `eq` y) || z)) False
+indsByElemsM :: (F.Foldable t) =>
+                (a -> a -> Bool) -> [a] -> t a -> BState Index [Index]
+indsByElemsM eq ks  = F.foldrM (\x -> BState . indsOfs (any . eq) ks x) []
+  -- elem' y     = foldr (\x z -> ((x `eq` y) || z)) False
+-- FIXME: elem' = any?
 
 -- Unwrap monad from list indexing functions.
-elemsByInds :: [a] -> [Index] -> [a]
+elemsByInds :: (F.Foldable t) => t a -> [Index] -> [a]
 elemsByInds xs js       = fst $ runBState (elemsByIndsM js xs) indBase
 
-elemsByNotInds :: [a] -> [Index] -> [a]
+elemsByNotInds :: (F.Foldable t) => t a -> [Index] -> [a]
 elemsByNotInds xs js    = fst $ runBState (elemsByNotIndsM js xs) indBase
 
-indsByElems :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
+indsByElems :: (F.Foldable t) => (a -> a -> Bool) -> t a -> [a] -> [Index]
 indsByElems eq xs ks    = fst $ runBState (indsByElemsM eq ks xs) indBase
 
 -- Some specific "instances" of above functions.
-elemByInd :: [a] -> Index -> [a]
+elemByInd :: (F.Foldable t) => t a -> Index -> [a]
 elemByInd xs j          = elemsByInds xs [j]
 
-indsByElem :: (a -> a -> Bool) -> [a] -> a -> [Index]
+indsByElem :: (F.Foldable t) => (a -> a -> Bool) -> t a -> a -> [Index]
 indsByElem eq xs k      = indsByElems eq xs [k]
 
 -- Convert list of elements into list of corresponding indexes in "reference"
 -- list (preserving order of elements).
-elemsOrder :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
+elemsOrder :: (F.Foldable t) => (a -> a -> Bool) -> t a -> [a] -> [Index]
 elemsOrder eq xs ks = ks >>= indsByElem eq xs
 
 
@@ -123,7 +130,7 @@ splitBy eq sp xs   = let sp' = reverse sp
 splitByM :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
 splitByM _  _  []           = return []
 splitByM _  [] xs           = return [xs]
-splitByM eq sp@(k : ks) xs  = foldrM (\x -> State . f x) [[]] xs
+splitByM eq sp@(k : ks) xs  = F.foldrM (\x -> State . f x) [[]] xs
   where
     -- splitByM ensures, that state is not empty list (f itself never makes
     -- state empty, the only possible case is empty initial state) and that
@@ -146,7 +153,7 @@ transp :: (a -> a -> Bool) -> [a] -> [a] -> [a]
 transp eq ks xs     = fst $ runBState (transpM eq xs) ks
 
 transpM :: (a -> a -> Bool) -> [a] -> BState [a] [a]
-transpM eq          = foldrM (\x zs -> BState $ f x zs) []
+transpM eq          = F.foldrM (\x zs -> BState $ f x zs) []
   where
     --f :: a -> [a] -> [a] -> ([a], [a])
     f _ _  []           = ([], [])
