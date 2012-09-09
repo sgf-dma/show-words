@@ -17,9 +17,11 @@ module SgfList
   where
 
 import qualified Data.Foldable as F
+import Control.Applicative
+import Control.Monad.State
+import Control.Monad.Reader
 import Data.List (deleteFirstsBy)
 import System.Random (RandomGen, randomRs)
-import Control.Monad.State
 
 -- Reimplement list indexing part of Data.List using Backward State monad. And
 -- some more useful functions for lists using State monads.
@@ -40,10 +42,10 @@ newtype BState s a  = BState {runBState :: (s -> (a, s))}
 instance Monad (BState s) where
     return x        = BState (\s -> (x, s))
     BState m >>= f  = BState $ \s2 ->
-                       let (x, s0)   = m s1
-                           BState m' = f x
-                           (x', s1)  = m' s2
-                       in  (x', s0)
+                        let (x, s0)   = m s1
+                            BState m' = f x
+                            (x', s1)  = m' s2
+                        in  (x', s0)
 
 
 -- Index list.
@@ -118,10 +120,10 @@ dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
 
 -- Split list by list (separator is list of elements), omitting separator
 -- itself, Note, that this function can't be implemented using Backward State
--- monad (i think).
+-- monad.
 splitBy :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
 splitBy eq sp xs   = let sp' = reverse sp
-                     in  fst $ runState (splitByM eq sp' xs) sp'
+                     in  fst . runState (splitByM eq sp' xs) $ sp'
 
 splitByM :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
 splitByM _  _  []           = return []
@@ -141,6 +143,87 @@ splitByM eq sp@(k : ks) xs  = F.foldrM (\x -> State . f x) [[]] xs
       | x `eq` k    = ((x : z) : zs, ks)
       | otherwise   = ((x : z) : zs, sp)
 
+splitBy' :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
+splitBy' eq sp xs   = let sp' = reverse sp
+                      in  fst . runState (splitByM' eq sp' xs) $ sp'
+
+splitByM' :: (F.Foldable t) =>
+             (a -> a -> Bool) -> [a] -> t a -> State [a] [[a]]
+splitByM' _  [] xs           = return $ (F.foldr (:) [] xs) : []
+splitByM' eq sp@(k : ks) xs  = F.foldrM (\x -> State . f x) [] xs
+  where
+    -- splitByM ensures, that state is not empty list (f itself never makes
+    -- state empty, the only possible case is empty initial state) and that
+    -- accumulator is not empty list.
+    --f :: a -> [[a]] -> [a] -> ([[a]], [a])
+    f x [] cs        = f x [[]] cs
+    f x (z : zs) [] = ((x : z) : zs, sp)
+    f x (z : zs) [c]
+      | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
+    f x (z : zs) (c : cs)
+      | x `eq` c    = ((x : z) : zs, cs)
+      | x `eq` k    = ((x : z) : zs, ks)
+      | otherwise   = ((x : z) : zs, sp)
+
+splitToColumns :: (F.Foldable t, Alternative f) =>
+            (a -> a -> Bool) -> [[a]] -> t (t a) -> [[f a]]
+splitToColumns  = undefined
+
+fM2 :: (F.Foldable t, Alternative f) =>
+             (a -> a -> Bool) -> (a -> Bool) -> t a -> [[f a]] -> BState [[a]] [[f a]]
+             -- (a -> a -> Bool) -> (a -> m Bool) -> t a -> [[f a]] -> BState [[a]] [[f a]]
+fM2 eq p x (z : zs) = do
+                        ks <- get
+                        let xs' = 
+                        if null ks then put [k]
+                          else put ks
+                        return ()
+  where
+    xs'             = splitBy1 eq k x
+    f []            = 
+    f [k]           = ([k])
+    f (k : ks)
+      | p xs'       = (zipWith (<|>) x' z : zs, k : ks)
+      | otherwise   = (k : ks)
+
+splitBy1 :: (F.Foldable t, Alternative f) =>
+            (a -> a -> Bool) -> [a] -> t a -> [f a]
+splitBy1 eq ks      = let ks' = reverse ks
+                      in  fst
+                            . flip runState ks'
+                            . flip runReaderT ks'
+                            . splitByM1 eq
+
+-- FIXME: Am i really need to pass `eq`? Or i'd better rely on class intance
+-- and add contraint (Eq a)?
+-- FIXME: Change to foldlM. But then i'll have initial t a reversed in the
+-- result. This can be avoided by using function composition (z . (x :)) in
+-- folding function.
+splitByM1 :: (F.Foldable t, Alternative f) =>
+             (a -> a -> Bool) -> t a -> ReaderT [a] (State [a]) [f a]
+splitByM1 eq xs     = do
+                        (z1 : z2 : zs) <- F.foldrM fM [empty, empty] xs
+                        return ((z1 <|> z2) : zs)
+  where
+    -- z1 is probably separator, z2 is column behind the separator.
+    --fM :: (Alternative f) =>
+    --      a -> [f a] -> ReaderT [a] (State [a]) [f a]
+    fM x (z1 : z2 : zs) = do
+                            ks <- ask
+                            cs <- lift get
+                            let (zs', cs') = f ks cs
+                            lift . put $ cs'
+                            return zs'
+      where
+        --f :: [a] -> [a] -> ([f a], [a])
+        f [] _          = (empty : (pure x <|> z2) : zs, [])
+        f ks [c]
+          | x `eq` c    = (empty : empty : z2 : zs, ks)
+        f (k : ks) (c : cs)
+          | x `eq` c    = ((pure x <|> z1) : z2 : zs, cs)
+          | x `eq` k    = (pure x : (z1 <|> z2) : zs, ks)
+          | otherwise   = (empty  : (pure x <|> z1 <|> z2) : zs, k : ks)
+
 -- Pick from a list xs first occurences of all elements found in reference
 -- list ks.  Stop processing a list xs if all reference elements have found.
 -- Works with inifinity list xs, if it contain all elements from reference
@@ -149,7 +232,7 @@ transp :: (a -> a -> Bool) -> [a] -> [a] -> [a]
 transp eq ks xs     = fst $ runBState (transpM eq xs) ks
 
 transpM :: (a -> a -> Bool) -> [a] -> BState [a] [a]
-transpM eq          = F.foldrM (\x zs -> BState $ f x zs) []
+transpM eq          = F.foldrM (\x -> BState . f x) []
   where
     --f :: a -> [a] -> [a] -> ([a], [a])
     f _ _  []           = ([], [])
@@ -157,6 +240,7 @@ transpM eq          = F.foldrM (\x zs -> BState $ f x zs) []
       | x `elem'` ks    = (x : zs, filter (not . (`eq` x)) ks)
       | otherwise       = (zs, ks)
       where
+        -- FIXME: Replace with any.
         --elem' :: a -> [a] -> Bool
         elem' k     = foldr (\y z -> (y `eq` k) || z) False
 
