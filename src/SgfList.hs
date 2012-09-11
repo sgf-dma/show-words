@@ -118,36 +118,40 @@ elemsOrder eq       = F.concatMap . indsByElem eq
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
 
--- FIXME: Am i really need to pass `eq`? Or i'd better rely on class intance
--- and add contraint (Eq a)?
--- FIXME: Change to foldlM. But then i'll have initial t a reversed in the
+
+
+
+-- FIXME: Am i really need to pass `eq`? Or i'd better to rely on class Eq
+-- instance and add contraint (Eq a)?
+-- FIXME: Change to foldlM. But then i'll have initial (t a) reversed in the
 -- result. This can be avoided by using function composition (z . (x :)) in
--- folding function.
+-- folding function. But is really that mess from function composition worth?
+
 -- Split list by list (separator is list of elements), omitting separator
 -- itself, Note, that this function can't be implemented using Backward State
 -- monad.
 splitBy :: (F.Foldable t, Alternative f) =>
-            (a -> a -> Bool) -> [a] -> t a -> [f a]
+           (a -> a -> Bool) -> [a] -> t a -> [f a]
 splitBy eq ks       = let ks' = reverse ks
                       in  fst
                             . flip runState ks'
                             . flip runReaderT ks'
                             . splitByM eq
 
+-- z1 is "probably separator", z2 is column behind the separator.
 splitByM :: (F.Foldable t, Alternative f) =>
              (a -> a -> Bool) -> t a -> ReaderT [a] (State [a]) [f a]
 splitByM eq xs      = do
                         (z1 : z2 : zs) <- F.foldrM fM [empty, empty] xs
                         return ((z1 <|> z2) : zs)
   where
-    -- z1 is probably separator, z2 is column behind the separator.
     --fM :: (Alternative f) =>
     --      a -> [f a] -> ReaderT [a] (State [a]) [f a]
     fM x (z1 : z2 : zs) = do
                             ks <- ask
                             cs <- lift get
                             let (zs', cs') = f ks cs
-                            lift . put $ cs'
+                            lift (put cs')
                             return zs'
       where
         --f :: [a] -> [a] -> ([f a], [a])
@@ -159,29 +163,26 @@ splitByM eq xs      = do
           | x `eq` k    = (pure x : (z1 <|> z2) : zs, ks)
           | otherwise   = (empty  : (pure x <|> z1 <|> z2) : zs, k : ks)
 
--- Old splitBy implementation. It may be useful for the first time for testing
--- purposes.
-splitByO :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
-splitByO eq sp xs   = let sp' = reverse sp
-                     in  fst . runState (splitByMO eq sp' xs) $ sp'
+splitToColumns :: (F.Foldable t, Alternative f)
+                => (a -> a -> Bool) -> (f a -> Bool)
+                -> [[a]] -> t (t a) -> [[f a]]
+splitToColumns eq p ks = fst . flip runBState ks . splitToColumnsM eq p
 
-splitByMO :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
-splitByMO _  _  []          = return []
-splitByMO _  [] xs          = return [xs]
-splitByMO eq sp@(k : ks) xs = F.foldrM (\x -> State . f x) [[]] xs
+splitToColumnsM :: (F.Foldable t, Alternative f)
+                 => (a -> a -> Bool) -> (f a -> Bool)
+                 -> t (t a) -> BState [[a]] [[f a]]
+splitToColumnsM eq p    = F.foldrM (\x z -> BState (f x z)) []
   where
-    -- splitByM ensures, that state is not empty list (f itself never makes
-    -- state empty, the only possible case is empty initial state) and that
-    -- accumulator is not empty list.
-    --f :: a -> [[a]] -> [a] -> ([[a]], [a])
-    f _ [] _        = undefined
-    f _ _ []        = undefined
-    f x (z : zs) [c]
-      | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
-    f x (z : zs) (c : cs)
-      | x `eq` c    = ((x : z) : zs, cs)
-      | x `eq` k    = ((x : z) : zs, ks)
-      | otherwise   = ((x : z) : zs, sp)
+    --f :: (F.Foldable t, Alternative f) =>
+    --     t a -> [[f a]] -> [[a]] -> ([[f a]], [[a]])
+    f x zs []           = (splitBy eq [] x : zs, [])
+    f x zs (k : ks)     =
+        let xs' = splitBy eq k x  -- :: -> [f a]
+        in  if any p xs' then (xs' `goOn` zs, k : ks)
+              else (xs' : zs, ks)
+      where
+        goOn xs' []         = xs' : []
+        goOn xs' (z : zs)   = (zipWith' (<|>) xs' z) : zs
 
 
 
@@ -222,4 +223,32 @@ zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
 zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
 zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
+
+
+
+
+
+-- Old splitBy implementation. It may be useful for the first time for testing
+-- purposes.
+splitByO :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
+splitByO eq sp xs   = let sp' = reverse sp
+                     in  fst . runState (splitByMO eq sp' xs) $ sp'
+
+splitByMO :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
+splitByMO _  _  []          = return []
+splitByMO _  [] xs          = return [xs]
+splitByMO eq sp@(k : ks) xs = F.foldrM (\x -> State . f x) [[]] xs
+  where
+    -- splitByM ensures, that state is not empty list (f itself never makes
+    -- state empty, the only possible case is empty initial state) and that
+    -- accumulator is not empty list.
+    --f :: a -> [[a]] -> [a] -> ([[a]], [a])
+    f _ [] _        = undefined
+    f _ _ []        = undefined
+    f x (z : zs) [c]
+      | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
+    f x (z : zs) (c : cs)
+      | x `eq` c    = ((x : z) : zs, cs)
+      | x `eq` k    = ((x : z) : zs, ks)
+      | otherwise   = ((x : z) : zs, sp)
 
