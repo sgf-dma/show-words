@@ -20,7 +20,6 @@ import qualified Data.Foldable as F
 import Control.Applicative
 import Control.Monad.State
 import Control.Monad.Reader
-import Data.List (deleteFirstsBy)
 import System.Random (RandomGen, randomRs)
 
 -- Reimplement list indexing part of Data.List using Backward State monad. And
@@ -118,18 +117,9 @@ elemsOrder eq       = F.concatMap . indsByElem eq
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p      = foldr (\x z -> if null z && p x then [] else x : z) []
 
-
-
-
--- FIXME: Am i really need to pass `eq`? Or i'd better to rely on class Eq
--- instance and add contraint (Eq a)?
--- FIXME: Change to foldlM. But then i'll have initial (t a) reversed in the
--- result. This can be avoided by using function composition (z . (x :)) in
--- folding function. But is really that mess from function composition worth?
-
--- Split list by list (separator is list of elements), omitting separator
--- itself, Note, that this function can't be implemented using Backward State
--- monad.
+-- Split list by list (separator is list of elements). Does not omit separator
+-- itself, just leave it as a separate element.  Note, that this function
+-- can't be implemented using Backward State monad.
 splitBy :: (F.Foldable t, Alternative f, Eq a) => [a] -> t a -> [f a]
 splitBy ks          = let ks' = reverse ks
                       in  fst
@@ -137,13 +127,13 @@ splitBy ks          = let ks' = reverse ks
                             . flip runReaderT ks'
                             . splitByM
 
--- z1 is "probably separator", z2 is column behind the separator.
 splitByM :: (F.Foldable t, Alternative f, Eq a) =>
             t a -> ReaderT [a] (State [a]) [f a]
 splitByM xs         = do
                         (z1 : z2 : zs) <- F.foldrM fM [empty, empty] xs
                         return ((z1 <|> z2) : zs)
   where
+    -- z1 is "probably separator", z2 is column behind the separator.
     --fM :: (Alternative f, Eq a) =>
     --      a -> [f a] -> ReaderT [a] (State [a]) [f a]
     fM x (z1 : z2 : zs) = do
@@ -162,100 +152,36 @@ splitByM xs         = do
           | x == k      = (pure x : (z1 <|> z2) : zs, ks)
           | otherwise   = (empty  : (pure x <|> z1 <|> z2) : zs, k : ks)
 
+-- Split list of foldable input lines to columns using splitBy and list of
+-- separators. Next separator choosed, when user-defined predicate returns
+-- True. If predicate returns False, line is merged into next one column by
+-- column.
+splitToColumns :: (F.Foldable t, Alternative f, Eq a) =>
+                  (f a -> State Bool (f a)) -> [[a]] -> [t a] -> [[f a]]
+splitToColumns g ks = fst . flip runBState ks . splitToColumnsM g
 
-splitToColumns4 :: (F.Foldable t, Alternative f, Eq a) =>
-                   ([f a] -> BState [a] ([b] -> [b])) -> [a] -> t (t a) -> [b]
-splitToColumns4 g k      = fst . flip runBState k . splitToColumnsM4 g
-
--- This version will not work, because join requires monad result evaluation,
--- which hangs Backward State monad.
-splitToColumnsM4 :: (F.Foldable t, Alternative f, Eq a) =>
-                    ([f a] -> BState [a] ([b] -> [b])) -> t (t a) -> BState [a] [b]
-splitToColumnsM4 g       = F.foldrM (\x -> join . BState . f x ) []
+splitToColumnsM :: (F.Foldable t, Alternative f, Eq a) =>
+                   (f a -> State Bool (f a)) -> [t a] -> BState [[a]] [[f a]]
+splitToColumnsM g   = F.foldrM (\x z -> BState (f x z)) []
   where
-  {-
-    --split :: .. Eq (f a) => ..
-    split ks            = let mk = foldr ((<|>) . pure) empty ks
-                          in  filter (/= mk) . splitBy ks-}
-    --f :: (F.Foldable t, Alternative f, Eq a) =>
-    --     t a -> [[f a]] -> [[a]] -> ([[f a]], [[a]])
-    f x zs k          =
-        let mx' = g (splitBy k x)  -- :: -> [f a]
-        in  (mx' >>= (\f -> return (f zs)), k)
-
-test4   = splitToColumns4
-            (BState . f)
-            " - "
-            ["a - b - c", "d - e - f", "g : h : i", "k : l : m"]
-  where
-    f xs k  = 
-                if any (any (== 'a')) xs then (goOn, " - ")
-                   else ((xs :), " : ")
-      where
-        goOn  []         = xs : []
-        goOn  (z : zs)   = (zipWith' (<|>) xs z) : zs
-
-test'   = splitToColumns'
-            (\x -> State $ \s -> (x, s || any (== 'a') x))
-            [" - ", " : "]
-            ["a - b - c", "d - e - f", "g : h : i", "k : l : m"]
-
-test    = splitToColumns
-            (\x -> (x, any (== 'a') x))
-            [" - ", " : "]
-            ["a - b - c", "d - e - f", "g : h : i", "k : l : m"]
-
-
-splitToColumns' :: (F.Foldable t, Alternative f, Eq a) =>
-                   (f a -> State Bool (f a)) -> [[a]] -> t (t a) -> [[f a]]
-splitToColumns' g ks     = fst . flip runBState ks . splitToColumnsM' g
-
-splitToColumnsM' :: (F.Foldable t, Alternative f, Eq a) =>
-                    (f a -> State Bool (f a)) -> t (t a) -> BState [[a]] [[f a]]
-splitToColumnsM' g       = F.foldrM (\x z -> BState (f x z)) []
-  where
-  {-
-    --split :: .. Eq (f a) => ..
-    split ks            = let mk = foldr ((<|>) . pure) empty ks
-                          in  filter (/= mk) . splitBy ks-}
     --f :: (F.Foldable t, Alternative f, Eq a) =>
     --     t a -> [[f a]] -> [[a]] -> ([[f a]], [[a]])
     f x zs []           = (splitBy [] x : zs, [])
     f x zs (k : ks)     =
         let xs = splitBy k x  -- :: -> [f a]
             (xs', p) = runState (mapM g xs) False
-        in  if p then (xs' `goOn` zs, k : ks)
-              else (xs' : zs, ks)
+        in  if p then (xs' : zs, ks)
+              else (xs' `goOn` zs, k : ks)
       where
         goOn xs' []         = xs' : []
         goOn xs' (z : zs)   = (zipWith' (<|>) xs' z) : zs
 
-
-splitToColumns :: (F.Foldable t, Alternative f, Eq a) =>
-                  (f a -> (f a, Bool)) -> [[a]] -> t (t a) -> [[f a]]
-splitToColumns g ks     = fst . flip runBState ks . splitToColumnsM g
-
-splitToColumnsM :: (F.Foldable t, Alternative f, Eq a) =>
-                   (f a -> (f a, Bool)) -> t (t a) -> BState [[a]] [[f a]]
-splitToColumnsM g       = F.foldrM (\x z -> BState (f x z)) []
-  where
-  {-
-    --split :: .. Eq (f a) => ..
-    split ks            = let mk = foldr ((<|>) . pure) empty ks
-                          in  filter (/= mk) . splitBy ks-}
-    --f :: (F.Foldable t, Alternative f, Eq a) =>
-    --     t a -> [[f a]] -> [[a]] -> ([[f a]], [[a]])
-    f x zs []           = (splitBy [] x : zs, [])
-    f x zs (k : ks)     =
-        let xs = splitBy k x  -- :: -> [f a]
-            (xs', p) = foldr (\(x', p) (zx, zp) -> (x' : zx, p || zp)) ([], False) . map g $ xs
-        in  if p then (xs' `goOn` zs, k : ks)
-              else (xs' : zs, ks)
-      where
-        goOn xs' []         = xs' : []
-        goOn xs' (z : zs)   = (zipWith' (<|>) xs' z) : zs
-
-
+-- Instead of discarding longer tail (like zipWith do), add it to the result
+-- as is.
+zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
+zipWith' _ xs []                = xs
+zipWith' _ [] ys                = ys
+zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 
 -- Pick from a list xs first occurences of all elements found in reference
 -- list ks.  Stop processing a list xs if all reference elements have found.
@@ -285,95 +211,4 @@ shuffleList :: RandomGen g => g -> [a] -> [a]
 shuffleList g xs    = let lx = length xs
                           ts = transp (==) (take lx [1..]) $ randomRs (1, lx) g
                       in  ts >>= elemByInd xs
-
--- Zipping.
---
--- Instead of discarding longer tail (like zipWith do), add it to the result
--- as is.
-zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
-zipWith' _ xs []                = xs
-zipWith' _ [] ys                = ys
-zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
-
-
-
-
-
--- Old splitBy implementation. It may be useful for the first time for testing
--- purposes.
-splitByO :: (a -> a -> Bool) -> [a] -> [a] -> [[a]]
-splitByO eq sp xs   = let sp' = reverse sp
-                     in  fst . runState (splitByMO eq sp' xs) $ sp'
-
-splitByMO :: (a -> a -> Bool) -> [a] -> [a] -> State [a] [[a]]
-splitByMO _  _  []          = return []
-splitByMO _  [] xs          = return [xs]
-splitByMO eq sp@(k : ks) xs = F.foldrM (\x -> State . f x) [[]] xs
-  where
-    -- splitByM ensures, that state is not empty list (f itself never makes
-    -- state empty, the only possible case is empty initial state) and that
-    -- accumulator is not empty list.
-    --f :: a -> [[a]] -> [a] -> ([[a]], [a])
-    f _ [] _        = undefined
-    f _ _ []        = undefined
-    f x (z : zs) [c]
-      | x `eq` c    = ([] : deleteFirstsBy eq (x : z) sp : zs, sp)
-    f x (z : zs) (c : cs)
-      | x `eq` c    = ((x : z) : zs, cs)
-      | x `eq` k    = ((x : z) : zs, ks)
-      | otherwise   = ((x : z) : zs, sp)
-
-splitByO1 :: (F.Foldable t, Alternative f) =>
-           (a -> a -> Bool) -> [a] -> t a -> [f a]
-splitByO1 eq ks     = let ks' = reverse ks
-                      in  fst
-                            . flip runState ks'
-                            . flip runReaderT ks'
-                            . splitByMO1 eq
-
--- z1 is "probably separator", z2 is column behind the separator.
-splitByMO1 :: (F.Foldable t, Alternative f) =>
-              (a -> a -> Bool) -> t a -> ReaderT [a] (State [a]) [f a]
-splitByMO1 eq xs     = do
-                        (z1 : z2 : zs) <- F.foldrM fM [empty, empty] xs
-                        return ((z1 <|> z2) : zs)
-  where
-    --fM :: (Alternative f) =>
-    --      a -> [f a] -> ReaderT [a] (State [a]) [f a]
-    fM x (z1 : z2 : zs) = do
-                            ks <- ask
-                            cs <- lift get
-                            let (zs', cs') = f ks cs
-                            lift (put cs')
-                            return zs'
-      where
-        --f :: [a] -> [a] -> ([f a], [a])
-        f [] _          = (empty : (pure x <|> z2) : zs, [])
-        f ks [c]
-          | x `eq` c    = (empty : empty : z2 : zs, ks)
-        f (k : ks) (c : cs)
-          | x `eq` c    = ((pure x <|> z1) : z2 : zs, cs)
-          | x `eq` k    = (pure x : (z1 <|> z2) : zs, ks)
-          | otherwise   = (empty  : (pure x <|> z1 <|> z2) : zs, k : ks)
-
-splitToColumnsO1 :: (F.Foldable t, Alternative f)
-                => (a -> a -> Bool) -> (f a -> Bool)
-                -> [[a]] -> t (t a) -> [[f a]]
-splitToColumnsO1 eq p ks = fst . flip runBState ks . splitToColumnsMO1 eq p
-
-splitToColumnsMO1 :: (F.Foldable t, Alternative f)
-                 => (a -> a -> Bool) -> (f a -> Bool)
-                 -> t (t a) -> BState [[a]] [[f a]]
-splitToColumnsMO1 eq p    = F.foldrM (\x z -> BState (f x z)) []
-  where
-    --f :: (F.Foldable t, Alternative f) =>
-    --     t a -> [[f a]] -> [[a]] -> ([[f a]], [[a]])
-    f x zs []           = (splitByO1 eq [] x : zs, [])
-    f x zs (k : ks)     =
-        let xs' = splitByO1 eq k x  -- :: -> [f a]
-        in  if any p xs' then (xs' `goOn` zs, k : ks)
-              else (xs' : zs, ks)
-      where
-        goOn xs' []         = xs' : []
-        goOn xs' (z : zs)   = (zipWith' (<|>) xs' z) : zs
 
