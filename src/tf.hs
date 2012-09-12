@@ -2,45 +2,10 @@
 
 import Data.List (deleteFirstsBy)
 import Data.Monoid
-import Control.Monad.Trans
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Applicative
 import qualified Data.Foldable as F
-
-newtype StateT' s m a   = StateT' {runStateT' :: s -> m (a, s)}
-instance (Monad m) => Monad (StateT' s m) where
-    return x        = StateT' $ \s -> return (x, s)
-    mtx >>= f       = StateT' $ \s0 -> do
-                        (x, s1) <- runStateT' mtx s0
-                        runStateT' (f x) s1
-instance MonadTrans (StateT' s) where
-    lift mx         = StateT' $ \s -> do
-                        x <- mx
-                        return (x, s)
-instance (Monad m) => MonadState s (StateT' s m) where
-    get             = StateT' $ \s -> return (s, s)
-    put s'          = StateT' $ \_ -> return ((), s')
-
-newtype Reader' r a = Reader' {runReader' :: r -> a}
-instance Monad (Reader' r) where
-    return x        = Reader' $ \_ -> x
-    mx >>= f        = Reader' $ \r -> 
-                        let g = runReader' mx
-                            mx' = f (g r)
-                        in  runReader' mx' r
-
-newtype ReaderT' r m a  = ReaderT' {runReaderT' :: r -> m a}
-instance (Monad m) => Monad (ReaderT' r m) where
-    return x        = ReaderT' $ \_ -> return x
-    mtx >>= f       = ReaderT' $ \r -> do
-                        x <- runReaderT' mtx r
-                        runReaderT' (f x) r
-instance MonadTrans (ReaderT' r) where
-    lift mx         = ReaderT' $ \_ -> mx
-instance (Monad m) => MonadReader r (ReaderT' r m) where
-    ask             = ReaderT' $ return
-    local f mtx     = ReaderT' $ runReaderT' mtx . f
 
 f :: Eq a => a -> [[a]] -> ReaderT [a] (State [a]) [[a]]
 f x (z : zs)        = do
