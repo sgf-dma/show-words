@@ -11,9 +11,11 @@ module SgfList
     , elemsOrder
     , dropWhileEnd
     , splitBy
+    , splitToColumns
+    , zipWith'
     , transp
     , shuffleList
-    , zipWith')
+    )
   where
 
 import qualified Data.Foldable as F
@@ -21,14 +23,16 @@ import Control.Applicative
 import Control.Monad.State
 import Control.Monad.Reader
 import System.Random (RandomGen, randomRs)
+import Data.Monoid
 
 -- Reimplement list indexing part of Data.List using Backward State monad. And
 -- some more useful functions for lists using State monads.
 
-{-
+
 foldrM :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
 foldrM _ z []         = return z
 foldrM g z (x : xs)   = foldrM g z xs >>= g x
+{-
 foldrM :: (F.Foldable t, Monad m) => (a -> b -> m b) -> b -> t a -> m b
 foldrM g z xs       = F.foldr (\x mz -> mz >>= g x) (return z) xs-}
 {-
@@ -152,26 +156,114 @@ splitByM xs         = do
           | x == k      = (pure x : (z1 <|> z2) : zs, ks)
           | otherwise   = (empty  : (pure x <|> z1 <|> z2) : zs, k : ks)
 
--- Split list of foldable input lines to columns using splitBy and list of
--- separators. Next separator choosed, when user-defined predicate returns
--- True. If predicate returns False, line is merged into next one column by
--- column.
+-- Split list of foldable input lines to columns by list of
+-- separators and (possible) merge lines column by column.
+-- Each input line is split by splitBy by current separator. Then monadic
+-- function g is mapped and sequenced over split input line. If resulting
+-- state is True, this line continued to next input line and merged with it
+-- column by column (function g should remove line continuation elements, like
+-- backslashes, if necessary). And, hence, separator for the next line remains
+-- the same.  If function g resulting state is False, this line just added to
+-- resulting list (as new element), and next separator choosed for next input
+-- line. Hence, if you want the last separator to be the same for the rest of
+-- input, just make separatir list tail infinite.
+
+foldMerge1 :: (Monoid a) => (a -> Bool) -> [a] -> [a]
+foldMerge1 p        = foldr f []
+  where
+    f x []          = [x]
+    f x (z : zs)
+      | p x         = x `mappend` z : zs
+      | otherwise   = x : z : zs
+
+foldMerge2 :: (Monoid b) => (a -> State Bool b) -> [a] -> [b]
+foldMerge2 g        = foldr (f . flip runState False . g) []
+  where
+    f (x', _) []    = [x']
+    f (x', p) (z : zs)
+      | p           = x' `mappend` z : zs
+      | otherwise   = x' : z : zs
+
+foldMerge2' :: (Monad m, Monoid b) => (a -> Bool) -> (a -> m b) -> [a] -> m [b]
+foldMerge2' p g     = foldrM (\x zs -> let mx' = g x
+                                       in  mx' >>= return . f (p x) zs) []
+  where
+    f _ [] x'       = [x']
+    f p (z : zs) x'
+      | p           = x' `mappend` z : zs
+      | otherwise   = x' : z : zs
+
+foldMerge2'' :: (Monad m, Monoid b) => (a -> (m b, Bool)) -> [a] -> m [b]
+foldMerge2'' g      = foldrM (\x zs -> let (mx', p) = g x
+                                       in  mx' >>= return . f p zs) []
+  where
+    f _ [] x'       = [x']
+    f p (z : zs) x'
+      | p           = x' `mappend` z : zs
+      | otherwise   = x' : z : zs
+
+foldMerge2''' :: (Monad m, Monoid b) => (a -> State Bool (m b)) -> [a] -> m [b]
+foldMerge2''' g     = foldrM (\x zs -> let (mx', p) = runState (g x) False
+                                       in  mx' >>= return . f p zs) []
+  where
+    f _ [] x'       = [x']
+    f p (z : zs) x'
+      | p           = x' `mappend` z : zs
+      | otherwise   = x' : z : zs
+
+foldMerge3 :: (Monad m, Monoid b) => (a -> StateT Bool m b) -> [a] -> StateT Bool m [b]
+foldMerge3 g        = foldrM (\x zs -> g x >>= \x' -> f x' zs) []
+  where
+    f x' []         = do
+                        put False
+                        return [x']
+    f x' (z : zs)   = do
+                        p <- get
+                        put False   -- reset StateT state to default.
+                        let zs' = if p then (x' `mappend` z : zs)
+                                    else (x' : z : zs)
+                        return zs'
+
+p2' :: String -> Bool
+p2'                 = ('a' `elem`)
+g2' :: String -> BState [String] [String]
+g2' xs              = BState $ \(k : ks) -> (splitBy k xs, ks)
+
+g2'' :: String -> (BState [String] [String], Bool)
+g2'' xs             = (BState $ \(k : ks) -> (splitBy k xs, ks), 'a' `elem` xs)
+
+g2''' :: String -> State Bool (BState [String] [String])
+g2''' xs            = put ('a' `elem` xs) >> return (BState $ \(k : ks) -> (splitBy k xs, ks))
+
+g2'''1 :: String -> State Bool (BState [String] [String])
+g2'''1 xs           = return (BState $ \(k : ks) -> (splitBy k xs, ks))
+
+g3 :: [[a]] -> a -> StateT Bool (BState [[a]]) b
+g3 = undefined
+
+
+
+
 splitToColumns :: (F.Foldable t, Alternative f, Eq a) =>
-                  (f a -> State Bool (f a)) -> [[a]] -> [t a] -> [[f a]]
+                  ([a] -> f a -> State Bool (f a))
+               -> [[a]] -> [t a] -> [[f a]]
 splitToColumns g ks = fst . flip runBState ks . splitToColumnsM g
 
 splitToColumnsM :: (F.Foldable t, Alternative f, Eq a) =>
-                   (f a -> State Bool (f a)) -> [t a] -> BState [[a]] [[f a]]
+                   ([a] -> f a -> State Bool (f a))
+                -> [t a] -> BState [[a]] [[f a]]
 splitToColumnsM g   = F.foldrM (\x z -> BState (f x z)) []
   where
+    -- FIXME: Function f must be applied in _any_ case, even if z is [],
+    -- because it also modifies x.
     --f :: (F.Foldable t, Alternative f, Eq a) =>
     --     t a -> [[f a]] -> [[a]] -> ([[f a]], [[a]])
     f x zs []           = (splitBy [] x : zs, [])
     f x zs (k : ks)     =
         let xs = splitBy k x  -- :: -> [f a]
-            (xs', p) = runState (mapM g xs) False
-        in  if p then (xs' : zs, ks)
-              else (xs' `goOn` zs, k : ks)
+            (xs', p) = runState (mapM (g k) xs) False
+        in  if p then (xs' `goOn` zs, k : ks)
+              else (xs' : zs, ks)
       where
         goOn xs' []         = xs' : []
         goOn xs' (z : zs)   = (zipWith' (<|>) xs' z) : zs
