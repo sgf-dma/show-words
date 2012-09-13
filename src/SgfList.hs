@@ -159,15 +159,20 @@ splitByM xs         = do
 -- Apply user-defined function g to every element in input list. Then evaluate
 -- State of its result, and if it's True, mappend new element (returned by g)
 -- into head of accumulator, otherwise, just add it to the accumulator (list).
-foldrMerge :: (F.Foldable t, Monad m, Monoid b) => 
-              (a -> State Bool (m b)) -> t a -> m [b]
-foldrMerge g        = F.foldrM (\x zs -> let (mx', p) = runState (g x) False
-                                       in  mx' >>= return . f p zs) []
+foldrMerge :: (Monad m, Monoid b) => (a -> (m b, Bool)) -> [a] -> m [b]
+foldrMerge g        = foldrM (\(mx, p) zs -> mx >>= return . f p zs) [] . map g
   where
     f _ [] x'       = [x']
     f p (z : zs) x'
       | p           = x' `mappend` z : zs
       | otherwise   = x' : z : zs
+
+g2 :: String -> (BState [String] [String], Bool)
+g2 xs             = (BState $ \(k : ks) -> (splitBy k xs, ks), 'a' `elem` xs)
+
+g2' :: String -> (BState [String] [String], Bool)
+g2' xs             = (BState $ \(k : ks) -> (splitBy k xs, ks), False)
+
 
 -- Instead of discarding longer tail (like zipWith do), add it to the result
 -- as is.
