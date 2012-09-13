@@ -144,6 +144,18 @@ testSplitToColumns =
       )
     ]
 
+-- Determine whether string ends at unescaped backslash (escape character is
+-- also backslash).
+lineCont :: String -> Bool
+lineCont            = foldl f False
+  where
+    f :: Bool -> Char -> Bool
+    f s x
+      | x == '\\'   = not s
+      | otherwise   = False
+
+-- Determine whether string ends at unescaped backslash (escape character is
+-- also backslash) and remove trailing backslash sequence.
 strCont :: String -> (String, Bool)
 strCont xs          = foldr f ([], False) xs
   where
