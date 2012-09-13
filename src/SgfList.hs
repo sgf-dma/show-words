@@ -173,21 +173,17 @@ zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 -- list ks.  Stop processing a list xs if all reference elements have found.
 -- Works with inifinity list xs, if it contain all elements from reference
 -- list ks.  May be used to make random transposition from randomRs output.
-transp :: (a -> a -> Bool) -> [a] -> [a] -> [a]
-transp eq ks xs     = fst $ runBState (transpM eq xs) ks
+transp :: Eq a => [a] -> [a] -> [a]
+transp ks           = fst . flip runBState ks . transpM
 
-transpM :: (a -> a -> Bool) -> [a] -> BState [a] [a]
-transpM eq          = foldrM (\x -> BState . f x) []
+transpM :: Eq a => [a] -> BState [a] [a]
+transpM             = foldrM (\x -> BState . f x) []
   where
     --f :: a -> [a] -> [a] -> ([a], [a])
     f _ _  []           = ([], [])
     f x zs ks
-      | x `elem'` ks    = (x : zs, filter (not . (`eq` x)) ks)
+      | x `elem` ks     = (x : zs, filter (/= x) ks)
       | otherwise       = (zs, ks)
-      where
-        -- FIXME: Replace with any.
-        --elem' :: a -> [a] -> Bool
-        elem' k     = foldr (\y z -> (y `eq` k) || z) False
 
 
 -- Random.
@@ -195,6 +191,6 @@ transpM eq          = foldrM (\x -> BState . f x) []
 -- Shuffle list elements.
 shuffleList :: RandomGen g => g -> [a] -> [a]
 shuffleList g xs    = let lx = length xs
-                          ts = transp (==) (take lx [1..]) $ randomRs (1, lx) g
+                          ts = transp (take lx [1..]) $ randomRs (1, lx) g
                       in  ts >>= elemByInd xs
 
