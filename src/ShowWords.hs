@@ -16,10 +16,11 @@ import System.Random            -- For randomRs.
 import SgfList
 import SgfOrderedLine
 
--- FIXME: Multi-line output. Backsalsh as continuation.
--- FIXME: Escape backslash with backslash.
 -- FIXME: Several output formats. Increase number of lines (on which one input
--- line split).
+-- line split):
+--      - line by line (current);
+--      - column by line;
+--      - phrase by line;
 -- FIXME: Empty answer == skip answer, but do not check.
 -- FIXME: Tests.
 -- FIXME: I disabled prefix match for column names during testing.
@@ -45,6 +46,36 @@ data WordsSeps      = WordsSeps
 dropSpaces :: String -> String
 dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
+-- Split each list element using current separator.
+-- to "columns". Each element may be continued on next
+-- line. Split function should return whether continue or not. If it is, it'll
+-- be merged with next line. Text separators are choosed from list. The last
+-- one remains for the remaining text.
+splitToCols :: (s -> a -> (b, Bool)) -> (b -> b -> b) -> [s] -> [a] -> [b]
+splitToCols _ _ [] xs       = xs
+splitToCols split zip ks xs = fst $ runBState (splitToColsM split zip xs) ks
+
+splitToColsM :: (s -> a -> (b, Bool)) -> (b -> b -> b) -> [a] -> BState [s] [b]
+splitToColsM split zip      = foldrM (\x -> BState . f x) []
+  where
+    -- I can't pattern match against zl (accumulator) in function f, because
+    -- this hangs Backward State monad (it'll need to compute first monad
+    -- result for computing next state).
+    --f :: a -> [b] -> [s] -> ([b], [s])
+    f x zl []               = undefined
+    f x zl (k : ks)
+      | p                   = (x' `goOn` zl, k : ks)
+      | null ks             = (x' `add`  zl, [k])
+      | otherwise           = (x' `add`  zl, ks)
+      where
+        (x', p)             = split k x
+        goOn _  []          = x' : []
+        goOn x' (z : zs)    = zip x' z : zs
+        add x' []           = x' : []
+        add x' (z : zs)     = x' : z : zs
+
+
+
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash) and in _any_ case remove all trailing backslashes.
 --
@@ -60,6 +91,10 @@ contStr             = foldr f ([], False)
       | otherwise   = ([x], s)
     f x (zs, s)     = (x : zs, s)
 
+splitToColumns2 :: Sep -> Sep -> [String] -> [[Column]]
+splitToColumns2 refSp colSp xs
+                    = splitToCols (map contStr . splitBy (==)) (zipWith' (++)) [refSp, ColSp]
+
 -- Split input lines (strings) into columns. First line is treated as
 -- reference (heading) and referenceSep is used to split it. Other are split
 -- by columnSep. If at least one column in an input line ends with unescaped
@@ -74,7 +109,7 @@ splitToColumns _ _ []   = []
 splitToColumns refSp colSp (ref : xs)
                         = let ref'  = splitBy (==) refSp ref
                               xs'   = map (splitBy (==) colSp) xs
-                          in  foldr (f . contCols) [[]] (ref' : xs')
+                          in  ref' : foldr (f . contCols) [[]] xs'
   where
     -- Check whether at least one of columns continued on next input line, and
     -- in any case remove all trailing backslashes from all columns.
@@ -259,6 +294,11 @@ parseArgs argv      = case getOpt Permute optsDescr argv of
                             fail (concat errs ++ usageInfo header optsDescr)
   where header      = "Usage: show_words [OPTION...] columnNames.."
 
+-- FIXME: Change sequence:
+--  splitToColumns -> ToPhrases -> reorderColumns.
+-- After all, if reordercolumns written correctly, this should have no
+-- difference when i call it. But such sequence allows to use new
+-- splitToColumns instead of splitToPhrases.
 -- Show words (main function).
 showWords :: WordsSeps -> IO ()
 showWords (WordsSeps
