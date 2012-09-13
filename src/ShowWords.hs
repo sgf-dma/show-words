@@ -16,6 +16,9 @@ import System.Random            -- For randomRs.
 import SgfList
 import SgfOrderedLine
 
+-- FIXME: Should i move splitTo.. and reorder.. function to SgfText? On the
+-- one hand, this is not general functions and have nothing common with
+-- Data.Test, but on the other.. well, perhaps, it's time to split this file?
 -- FIXME: Several output formats. Increase number of lines (on which one input
 -- line split):
 --      - line by line (current);
@@ -31,6 +34,9 @@ import SgfOrderedLine
 -- enabled, newline will break all output.
 
 
+-- FIXME: These types are confusing: why Column is not [Phrase] ? But, on the
+-- other hand, i can't make it [Phrase], because i need exactly String. So,
+-- are they useless?
 type Sep            = String
 type Column         = String
 type Phrase         = String
@@ -47,6 +53,7 @@ dropSpaces :: String -> String
 dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
 {-
+-- FIXME: Am i need this function?
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash).
 lineCont :: String -> Bool
@@ -57,6 +64,7 @@ lineCont            = foldl f False
       | x == '\\'   = not s
       | otherwise   = False-}
 
+-- FIXME: Rename strCont to something closer to splitTextLine.
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash) and in _any_ case remove all trailing backslashes.
 --
@@ -101,6 +109,7 @@ splitTextLine x     = BState (f x) >>= \ ~(xs, p) -> return (ZipList' xs, p)
       where
         z@(_, p)    = split k x
 
+-- FIXME: Add description.
 --splitToColumns :: Sep -> Sep -> [String] -> [[Column]]
 splitToColumns :: Sep -> Sep -> [String] -> [[String]]
 splitToColumns refSp colSp  = map getZipList'
@@ -108,6 +117,8 @@ splitToColumns refSp colSp  = map getZipList'
                                 . flip runBState [refSp, colSp]
                                 . foldrMerge splitTextLine
 
+-- FIXME: Should i rewrite it to use foldrMerge? Really, i see no sense in
+-- this, because splitToPhrases will never need to merge lines.
 -- Split ordered columns (Line-s) into phrases. First line is treated as
 -- reference, and does not split into phrases.
 splitToPhrases :: Sep -> [Line Column] -> [Line [Phrase]]
