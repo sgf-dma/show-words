@@ -1,6 +1,7 @@
 
 module SgfList
     ( BState (..)
+    , ZipList' (..)
     , Index
     , indBase
     , elemsByInds
@@ -47,6 +48,16 @@ instance Monad (BState s) where
                             BState m' = f x
                             (x', s1)  = m' s2
                         in  (x', s0)
+
+-- Slightly different ZipList: it uses my zipWith' instead of zipWith.  Note,
+-- that it can't be made an instance of Applicative.
+newtype ZipList' a  = ZipList' {getZipList' :: [a]}
+  deriving (Show)
+instance Monoid a => Monoid (ZipList' a) where
+    mempty          = ZipList' []
+    x `mappend` y   = let (ZipList' xs) = x
+                          ys = getZipList' y
+                      in  ZipList' $ zipWith' mappend xs ys
 
 
 -- Index list.
@@ -151,17 +162,31 @@ splitByM xs         = do
           | x == k      = (pure x : (z1 <|> z2) : zs, ks)
           | otherwise   = (empty  : (pure x <|> z1 <|> z2) : zs, k : ks)
 
+
+-- Folding.
+--
 -- Apply user-defined function g to every element in input list. Then if it
 -- returns True along with new element (monoid), mappend new element into head
 -- of accumulator, otherwise just add it to the accumulator list.
-foldrMerge :: (Monad m, Monoid b) => (a -> (m b, Bool)) -> [a] -> m [b]
-foldrMerge g        = foldrM (\(mx, p) zs -> mx >>= return . f p zs) [] . map g
+foldrMerge :: (Monad m, Monoid b) => (a -> m (b, Bool)) -> [a] -> m [b]
+foldrMerge g        = foldrM (\x zs -> g x >>= return . f zs) []
+  where
+    f [] (x', _)    = [x']
+    f (z : zs) (x', p)
+      | p           = x' `mappend` z : zs
+      | otherwise   = x' : z : zs
+
+foldrMerge' :: (Monad m, Monoid b) => (a -> (m b, Bool)) -> [a] -> m [b]
+foldrMerge' g       = foldrM (\(mx, p) zs -> mx >>= return . f p zs) [] . map g
   where
     f _ [] x'       = [x']
     f p (z : zs) x'
       | p           = x' `mappend` z : zs
       | otherwise   = x' : z : zs
 
+
+-- Zipping.
+--
 -- Instead of discarding longer tail (like zipWith do), add it to the result
 -- as is.
 zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
