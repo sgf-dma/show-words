@@ -29,6 +29,8 @@ testSplitBy         =
     , (splitBy " -" " - -", ["", " -", "", " -", ""])
     ]
 
+-- This is actually foldrMerge test, because splitToColumns just adds several
+-- wraps and unwraps to it.
 testSplitToColumns :: [([[String]], [[String]])]
 testSplitToColumns =
     [ ( splitToColumns  [" - ", " : "]

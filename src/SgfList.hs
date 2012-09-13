@@ -4,6 +4,7 @@ module SgfList
     , ZipList' (..)
     , Index
     , indBase
+    , foldrM
     , elemsByInds
     , elemsByNotInds
     , indsByElems

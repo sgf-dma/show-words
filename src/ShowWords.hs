@@ -46,35 +46,16 @@ data WordsSeps      = WordsSeps
 dropSpaces :: String -> String
 dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
--- Split each list element using current separator.
--- to "columns". Each element may be continued on next
--- line. Split function should return whether continue or not. If it is, it'll
--- be merged with next line. Text separators are choosed from list. The last
--- one remains for the remaining text.
-splitToCols :: (s -> a -> (b, Bool)) -> (b -> b -> b) -> [s] -> [a] -> [b]
-splitToCols _ _ [] xs       = xs
-splitToCols split zip ks xs = fst $ runBState (splitToColsM split zip xs) ks
-
-splitToColsM :: (s -> a -> (b, Bool)) -> (b -> b -> b) -> [a] -> BState [s] [b]
-splitToColsM split zip      = foldrM (\x -> BState . f x) []
+{-
+-- Determine whether string ends at unescaped backslash (escape character is
+-- also backslash).
+lineCont :: String -> Bool
+lineCont            = foldl f False
   where
-    -- I can't pattern match against zl (accumulator) in function f, because
-    -- this hangs Backward State monad (it'll need to compute first monad
-    -- result for computing next state).
-    --f :: a -> [b] -> [s] -> ([b], [s])
-    f x zl []               = undefined
-    f x zl (k : ks)
-      | p                   = (x' `goOn` zl, k : ks)
-      | null ks             = (x' `add`  zl, [k])
-      | otherwise           = (x' `add`  zl, ks)
-      where
-        (x', p)             = split k x
-        goOn _  []          = x' : []
-        goOn x' (z : zs)    = zip x' z : zs
-        add x' []           = x' : []
-        add x' (z : zs)     = x' : z : zs
-
-
+    f :: Bool -> Char -> Bool
+    f s x
+      | x == '\\'   = not s
+      | otherwise   = False-}
 
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash) and in _any_ case remove all trailing backslashes.
@@ -82,8 +63,8 @@ splitToColsM split zip      = foldrM (\x -> BState . f x) []
 -- FIXME: I'm not sure, whether i should remove all trailing backslashes every
 -- time or only last one and only if it's unescaped. After all, only the last
 -- unescaped backslash continues line, but others are just characters.
-contStr :: String -> (String, Bool)
-contStr             = foldr f ([], False)
+strCont :: String -> (String, Bool)
+strCont             = foldr f ([], False)
   where
     f :: Char -> (String, Bool) -> (String, Bool)
     f x ([], s)
@@ -91,36 +72,50 @@ contStr             = foldr f ([], False)
       | otherwise   = ([x], s)
     f x (zs, s)     = (x : zs, s)
 
-splitToColumns2 :: Sep -> Sep -> [String] -> [[Column]]
-splitToColumns2 refSp colSp xs
-                    = splitToCols (map contStr . splitBy (==)) (zipWith' (++)) [refSp, ColSp]
-
--- Split input lines (strings) into columns. First line is treated as
--- reference (heading) and referenceSep is used to split it. Other are split
--- by columnSep. If at least one column in an input line ends with unescaped
--- backslash (escape character is also backslash), i assume, that this line
--- continues at following input line. In such case, following input line will
--- be merged into preceding column by column. This particularly means, that if
--- following input line has different number of columns (e.g. due to missed
--- column separators) merge will most likely mess column contents. All
--- trailing backslashes in any case will be removed from all columns.
-splitToColumns :: Sep -> Sep -> [String] -> [[Column]]
-splitToColumns _ _ []   = []
-splitToColumns refSp colSp (ref : xs)
-                        = let ref'  = splitBy (==) refSp ref
-                              xs'   = map (splitBy (==) colSp) xs
-                          in  ref' : foldr (f . contCols) [[]] xs'
+-- Folding function for foldrMerge. Split input line to columns using splitBy
+-- with current separator (tracked in state). Then filter out all separators
+-- and check whether this input line continues on next line. If so, return
+-- True, so foldrMerge can mappend it to next input line.
+-- Note, that pattern matching in monadic function will hang Backward State
+-- monad, because it will require to evaluate result even for looking what
+-- next state will be. So i should either use lazy pattern matching or pattern
+-- match in another function, like
+--
+--      BState (f x) >>= return . wrapInZipList'
+--
+splitTextLine :: String -> BState [String] (ZipList' String, Bool)
+splitTextLine x     = BState (f x) >>= \ ~(xs, p) -> return (ZipList' xs, p)
   where
-    -- Check whether at least one of columns continued on next input line, and
-    -- in any case remove all trailing backslashes from all columns.
-    contCols :: [Column] -> ([Column], Bool)
-    contCols    = foldr (\(x, p) (zs, ps) -> (x : zs, p || ps)) ([], False)
-                    . map contStr
-    f :: ([Column], Bool) -> [[Column]] -> [[Column]]
-    f _ []          = undefined
-    f (x', p) (z : zs)
-      | p           = zipWith' (++) x' z : zs
-      | otherwise   = x' : z : zs
+    --split :: String -> String -> ([String], Bool)
+    split k         = foldr (\(x, p) (zx, zp) -> (x : zx, p || zp)) ([], False)
+                        . map strCont
+                        . filter (/= k)
+                        . splitBy k
+    --f :: String -> [String] -> (([String], Bool), [String])
+    f x []          = (split [] x, [])
+    f x (k : ks)
+      | null ks     = (z, [k])
+      | otherwise   = if p
+                        then (z, k : ks)
+                        else (z, ks)
+      where
+        z@(_, p)    = split k x
+
+--splitToColumns :: Sep -> Sep -> [String] -> [[Column]]
+splitToColumns :: Sep -> Sep -> [String] -> [[String]]
+splitToColumns refSp colSp  = map getZipList'
+                                . fst
+                                . flip runBState [refSp, colSp]
+                                . foldrMerge splitTextLine
+
+-- Split ordered columns (Line-s) into phrases. First line is treated as
+-- reference, and does not split into phrases.
+splitToPhrases :: Sep -> [Line Column] -> [Line [Phrase]]
+splitToPhrases _     [] = []
+splitToPhrases phrSp (ref : xs)
+                        = let ref' = mapLine1 (: []) ref
+                              xs'  = map (mapLine1 (splitBy phrSp)) xs
+                          in  ref' : xs'
 
 -- Order columns (convert to Line-s) according to supplied new column order.
 reorderColumns :: [Column] -> Sep -> [[Column]] -> [Line Column]
@@ -136,15 +131,6 @@ reorderColumns colNames refSp (ref : xs)
     makeRef []          = []
     makeRef (refl : ys) = let ref' = concat $ joinLine id (refSp ++) refl
                           in  orderList [] [ref'] : ys
-
--- Split ordered columns (Line-s) into phrases. First line is treated as
--- reference, and does not split into phrases.
-splitToPhrases :: Sep -> [Line Column] -> [Line [Phrase]]
-splitToPhrases _     [] = []
-splitToPhrases phrSp (ref : xs)
-                        = let ref' = mapLine1 (: []) ref
-                              xs'  = map (mapLine1 (splitBy (==) phrSp)) xs
-                          in  ref' : xs'
 
 -- Shuffle (or not) lines.
 reorderLines :: String -> [Line a] -> IO [Line a]
@@ -326,4 +312,72 @@ showWords (WordsSeps
     readFile' file  = do
         contents <- B.readFile file
         return $ decode $ B.unpack contents
+
+
+
+
+
+{- Outdated code
+
+-- Split each list element using current separator.
+-- to "columns". Each element may be continued on next
+-- line. Split function should return whether continue or not. If it is, it'll
+-- be merged with next line. Text separators are choosed from list. The last
+-- one remains for the remaining text.
+splitToCols :: (s -> a -> (b, Bool)) -> (b -> b -> b) -> [s] -> [a] -> [b]
+splitToCols _ _ [] xs       = xs
+splitToCols split zip ks xs = fst $ runBState (splitToColsM split zip xs) ks
+
+splitToColsM :: (s -> a -> (b, Bool)) -> (b -> b -> b) -> [a] -> BState [s] [b]
+splitToColsM split zip      = foldrM (\x -> BState . f x) []
+  where
+    -- I can't pattern match against zl (accumulator) in function f, because
+    -- this hangs Backward State monad (it'll need to compute first monad
+    -- result for computing next state).
+    --f :: a -> [b] -> [s] -> ([b], [s])
+    f x zl []               = undefined
+    f x zl (k : ks)
+      | p                   = (x' `goOn` zl, k : ks)
+      | null ks             = (x' `add`  zl, [k])
+      | otherwise           = (x' `add`  zl, ks)
+      where
+        (x', p)             = split k x
+        goOn _  []          = x' : []
+        goOn x' (z : zs)    = zip x' z : zs
+        add x' []           = x' : []
+        add x' (z : zs)     = x' : z : zs
+
+
+
+splitToColumns2 :: Sep -> Sep -> [String] -> [[Column]]
+splitToColumns2 refSp colSp xs
+                    = splitToCols (map strCont . splitBy) (zipWith' (++)) [refSp, colSp]
+
+-- Split input lines (strings) into columns. First line is treated as
+-- reference (heading) and referenceSep is used to split it. Other are split
+-- by columnSep. If at least one column in an input line ends with unescaped
+-- backslash (escape character is also backslash), i assume, that this line
+-- continues at following input line. In such case, following input line will
+-- be merged into preceding column by column. This particularly means, that if
+-- following input line has different number of columns (e.g. due to missed
+-- column separators) merge will most likely mess column contents. All
+-- trailing backslashes in any case will be removed from all columns.
+splitToColumns :: Sep -> Sep -> [String] -> [[Column]]
+splitToColumns _ _ []   = []
+splitToColumns refSp colSp (ref : xs)
+                        = let ref'  = splitBy refSp ref
+                              xs'   = map (splitBy colSp) xs
+                          in  ref' : foldr (f . contCols) [[]] xs'
+  where
+    -- Check whether at least one of columns continued on next input line, and
+    -- in any case remove all trailing backslashes from all columns.
+    contCols :: [Column] -> ([Column], Bool)
+    contCols    = foldr (\(x, p) (zs, ps) -> (x : zs, p || ps)) ([], False)
+                    . map strCont
+    f :: ([Column], Bool) -> [[Column]] -> [[Column]]
+    f _ []          = undefined
+    f (x', p) (z : zs)
+      | p           = zipWith' (++) x' z : zs
+      | otherwise   = x' : z : zs
+-}
 
