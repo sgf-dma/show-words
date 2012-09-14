@@ -95,10 +95,15 @@ elemsByNotIndsM :: [Index] -> [a] -> BState Index [a]
 elemsByNotIndsM js  = foldrM (\x -> BState . onlyInds (`notElem` js) x) []
 
 -- Reverse of elemsByInds. Find all indexes of specified elements.
-indsByElemsM :: (a -> a -> Bool) -> [a] -> [a] -> BState Index [Index]
+indsByElemsM :: (a -> a -> Bool)
+             -> [a] -- Elements, which indexes i'm searching for.
+             -> [a] -- List, where i'm searching for.
+             -> BState Index [Index]
 indsByElemsM eq ks  = foldrM (\x -> BState . onlyElems p x) []
-  where p x         = any (`eq` x) ks
+  where
+    p x             = any (`eq` x) ks
 
+-- FIXME: Reorder js/xs and ks/xs into natural order!
 -- Unwrap monad from list indexing functions.
 elemsByInds :: [a] -> [Index] -> [a]
 elemsByInds xs js       = fst . runBState (elemsByIndsM js xs) $ indBase
@@ -106,19 +111,29 @@ elemsByInds xs js       = fst . runBState (elemsByIndsM js xs) $ indBase
 elemsByNotInds :: [a] -> [Index] -> [a]
 elemsByNotInds xs js    = fst . runBState (elemsByNotIndsM js xs) $ indBase
 
-indsByElems :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
+indsByElems :: (a -> a -> Bool)
+            -> [a]  -- List, where i'm searching for.
+            -> [a]  -- Elements, which indexes i'm searching for.
+            -> [Index]
 indsByElems eq xs ks    = fst . runBState (indsByElemsM eq ks xs) $ indBase
 
 -- Some more specific "instances" of above functions.
 elemByInd :: [a] -> Index -> [a]
 elemByInd xs j      = elemsByInds xs [j]
 
-indsByElem :: (a -> a -> Bool) -> [a] -> a -> [Index]
+indsByElem :: (a -> a -> Bool)
+           -> [a]   -- List, where i'm searching for.
+           -> a     -- Element, which index i'm searching for.
+           -> [Index]
 indsByElem eq xs k  = indsByElems eq xs [k]
 
 -- Convert list of elements into list of corresponding indexes in "reference"
--- list (preserving order of elements).
-elemsOrder :: (a -> a -> Bool) -> [a] -> [a] -> [Index]
+-- list. Indexes comes in the same order as elements i have searched for,
+-- instead of index increase order, which will have result of indsByElems.
+elemsOrder :: (a -> a -> Bool)
+           -> [a]   -- List, where i'm searching for.
+           -> [a]   -- Elements, which indexes i'm searching for.
+           -> [Index]
 elemsOrder eq       = concatMap . indsByElem eq
 
 

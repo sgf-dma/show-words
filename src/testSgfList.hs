@@ -144,6 +144,26 @@ testSplitToColumns =
       , [ ["a\\ - b - cd - e\\ - fgk", "hl", "im"]
         ]
       )
+    , ( splitToColumns  [" - ", " : "]
+                        [ "a\\ - b - c"
+                        , "d - e- f"
+                        , "g: h : i\\"
+                        , "k : l\\ : m"
+                        ]
+      , [ ["ad", "be- f", "c"]
+        , ["g: hk", "il", "m"]
+        ]
+      )
+    , ( splitToColumns  [" - ", " : "]
+                        [ "a\\ - b - c"
+                        , ""
+                        , "\\"
+                        , "k : l\\ : m"
+                        ]
+      , [ ["a", "b", "c"]
+        , ["k", "l", "m"]
+        ]
+      )
     ]
 
 -- Determine whether string ends at unescaped backslash (escape character is

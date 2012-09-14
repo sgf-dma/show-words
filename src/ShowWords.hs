@@ -42,7 +42,7 @@ checkAnswer p       = do
 -- treated as a question.  Other columns (and phrases they contain) will be
 -- outputted all at once and execution immediately porceeds to next line.
 putPhrases :: (Phrase -> IO Phrase) -> WordsSeps -> [Line [Phrase]] -> IO ()
-putPhrases f (WordsSeps {getColumnSep = colSp, getPhraseSep = phrSp})
+putPhrases f (WordsSeps {columnSep = colSp, phraseSep = phrSp})
                     = mapM_ (\x -> putLine x >> putStrF "\n")
   where
     putLine :: Line [Phrase] -> IO ()
@@ -174,7 +174,7 @@ showWords wSps = do
     xs <- reorderLines lineOrder
             $ map (mapLine1 (map dropSpaces))
             $ splitToPhrases wSps
-            $ reorderColumns colNames wSps
+            $ reorderColumns (==) colNames
             $ splitToColumns wSps
             $ lines contents
     putPhrases mode wSps xs

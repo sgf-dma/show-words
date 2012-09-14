@@ -1,12 +1,14 @@
 
 module SgfOrderedLine
-    ( Line
+    ( Line (..)
     , orderList
     , mapLine
     , mapLine1
     , joinLine
     , joinLineM)
   where
+
+-- FIXME: Do not export Line data contructor!
 
 import Control.Applicative
 
@@ -17,7 +19,9 @@ import SgfList
 -- mentioned in index list for elemsOrder).
 -- First list contains ordered elements, second - other elements.
 data Line a         = Line [a] [a]
-  deriving (Show)
+  deriving (Eq, Show)
+instance Functor Line where
+    fmap            = mapLine1
 
 -- Convert list to Line by splitting to list of ordered elements and list of
 -- other elements.
