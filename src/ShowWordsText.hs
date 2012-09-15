@@ -1,6 +1,6 @@
 
 module ShowWordsText
-    ( WordsSeps(..)
+    ( WordsSeps (..)
     , dropSpaces
     , splitToColumns
     , splitToPhrases

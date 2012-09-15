@@ -1,6 +1,6 @@
 
 module ShowWords
-    ( WordsSeps(..)
+    ( WordsSeps (..)
     , showWords)
   where
 
@@ -9,57 +9,30 @@ import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
-import Data.Char                -- For isSpace.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
-import System.Random            -- For randomRs.
 
-import SgfList
 import SgfOrderedLine
 import ShowWordsText
+import ShowWordsOutput
 
-putStrF :: String -> IO ()
-putStrF x           = do
-                        B.putStr $ B.pack $ encode x
-                        hFlush stdout
-
--- Wait for a key from user.
-waitKey :: a -> IO a
-waitKey p           = getChar >> return p
-
--- Check that user entered correct phrase.
-checkAnswer :: Phrase -> IO Phrase
-checkAnswer p       = do
-                       r <- getLine
-                       return (checkPhrase r ++ p)
-  where
-    checkPhrase :: String -> String
-    checkPhrase r
-      | r == p      = " Ura! "
-      | otherwise   = " Ops! "
-
--- Output phrases and execute specified action before every phrase in ordered
--- column, except first ordered column. First is omitted, because it is
--- treated as a question.  Other columns (and phrases they contain) will be
--- outputted all at once and execution immediately porceeds to next line.
-putPhrases :: (Phrase -> IO Phrase) -> WordsSeps -> [Line [Phrase]] -> IO ()
-putPhrases f (WordsSeps {columnSep = colSp, phraseSep = phrSp})
-                    = mapM_ (\x -> putLine x >> putStrF "\n")
-  where
-    putLine :: Line [Phrase] -> IO ()
-    putLine = mapM_ (>>= putStrF)
-                . concatMap joinPhrases               -- :: -> [IO Phrase]
-                . joinLine (map (>>= f')) joinColumns -- :: -> [[IO Phrase]]
-                . mapLine1 (map return)               -- :: -> Line [IO Phrase]
-      where
-        f' :: Phrase -> IO Phrase
-        f' []   = return []
-        f' xs   = f xs
-        joinColumns :: [IO Phrase] -> [IO Phrase]
-        joinColumns []          = [return colSp]
-        joinColumns (mx : mxs)  = ((colSp ++) <$> mx) : mxs
-        joinPhrases :: [IO Phrase] -> [IO Phrase]
-        joinPhrases []          = []
-        joinPhrases (mx : mxs)  = mx : map ((phrSp ++) <$>) mxs
+-- FIXME: May be revert type Column? But this time in the form of [String]?
+-- FIXME: Add statistic? WriterT w IO, is it not?
+-- FIXME: Mark place, where column match (literal or not) performed.
+-- Also, mark place, where separator matches preformed, as well as answer
+-- matches.
+-- FIXME: Several output formats. Increase number of lines (on which one input
+-- line split):
+--      - line by line (current);
+--      - column by line;
+--      - phrase by line;
+-- FIXME: Empty answer == skip answer, but do not check.
+-- FIXME: Tests.
+-- FIXME: I disabled prefix match for column names during testing.
+-- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
+-- with user..
+-- FIXME: Not literal match for separators?
+-- FIXME: Disabled echo for "check" mode is not convenient. Though, if it is
+-- enabled, newline will break all output.
 
 
 -- Usage: ./show_words [options..] [column_names]
@@ -108,7 +81,7 @@ putPhrases f (WordsSeps {columnSep = colSp, phraseSep = phrSp})
 -- double check column names in words file and on command line!
 
 -- Set appropriate operation mode (how to put phrases) from string.
-setMode :: String -> Phrase -> IO Phrase
+setMode :: String -> String -> IO String
 setMode xs
   | xs == "check"   = checkAnswer
   | xs == "print"   = waitKey
@@ -116,7 +89,7 @@ setMode xs
   | otherwise       = return
 
 data Options        = Options
-                        { optMode      :: Phrase -> IO Phrase
+                        { optMode      :: String -> IO String
                         , optLineOrder :: String
                         , optFile      :: FilePath
                         }
@@ -174,12 +147,15 @@ showWords wSps = do
     xs <- reorderLines lineOrder
             $ map (mapLine1 (map dropSpaces))
             $ splitToPhrases wSps
-            $ reorderColumns (==) colNames
+            $ reorderColumns refEq colNames
             $ splitToColumns wSps
             $ lines contents
     putPhrases mode wSps xs
     putStrF "Bye!\n"
   where
+    -- Equality test for reference columns.
+    refEq :: String -> String -> Bool
+    refEq xs ys     = dropSpaces xs == dropSpaces ys
     readFile' :: FilePath -> IO String
     readFile' file  = do
         contents <- B.readFile file
