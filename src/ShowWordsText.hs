@@ -1,8 +1,6 @@
 
 module ShowWordsText
     ( WordsSeps(..)
-    , Column
-    , Phrase
     , dropSpaces
     , splitToColumns
     , splitToPhrases
@@ -18,31 +16,7 @@ import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 import SgfList
 import SgfOrderedLine
 
--- FIXME: Mark place, where column match (literal or not) performed.
--- Also, mark place, where separator matches preformed, as well as answer
--- matches.
--- FIXME: Several output formats. Increase number of lines (on which one input
--- line split):
---      - line by line (current);
---      - column by line;
---      - phrase by line;
--- FIXME: Empty answer == skip answer, but do not check.
--- FIXME: Tests.
--- FIXME: I disabled prefix match for column names during testing.
--- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
--- with user..
--- FIXME: Not literal match for separators?
--- FIXME: Disabled echo for "check" mode is not convenient. Though, if it is
--- enabled, newline will break all output.
 
-
--- FIXME: These types are confusing: why Column is not [Phrase] ? But, on the
--- other hand, i can't make it [Phrase], because i need exactly String. So,
--- are they useless?
-type Sep            = String
-type Column         = String
-type Phrase         = String
-type Column'        = [String]
 -- Input (and output) separators.
 data WordsSeps      = WordsSeps
                         { columnSep    :: String -- Column separator.
@@ -55,25 +29,13 @@ data WordsSeps      = WordsSeps
 dropSpaces :: String -> String
 dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 
-{-
--- FIXME: Am i need this function?
 -- Determine whether string ends at unescaped backslash (escape character is
--- also backslash).
-lineCont :: String -> Bool
-lineCont            = foldl f False
-  where
-    f :: Bool -> Char -> Bool
-    f s x
-      | x == '\\'   = not s
-      | otherwise   = False-}
-
--- Determine whether string ends at unescaped backslash (escape character is
--- also backslash) and in _any_ case remove all trailing backslashes.
+-- also backslash). Also in _any_ case remove all trailing backslashes.
 --
 -- FIXME: I'm not sure, whether i should remove all trailing backslashes every
--- time or only last one and only if it's unescaped. After all, only the last
+-- time or only last one and only if it is unescaped. After all, only the last
 -- unescaped backslash continues line, but others are just characters. On the
--- other hand, they're almost ever useless.
+-- other hand, they're almost ever a garbage.
 isContinued :: String -> (String, Bool)
 isContinued         = foldr f ([], False)
   where
@@ -84,12 +46,12 @@ isContinued         = foldr f ([], False)
     f x (zs, s)     = (x : zs, s)
 
 -- Folding function for foldrMerge. Split input line to columns using splitBy
--- with current separator (tracked in state). Then filter out all separators
--- and check whether this input line continues on next line. If so, return
--- True and do not change separator, so the next line will be split in the
--- same way and foldrMerge can mappend them. Otherwise, return False and
--- choose next separator. If only one separator remains, use it for the rest
--- of text.
+-- with current separator (tracked in backward state). Then filter out all
+-- separators and check whether this input line continues on next line. If so,
+-- return True and do not change separator, so the next line will be split in
+-- the same way and foldrMerge can mappend them. Otherwise, return False and
+-- choose next separator. If only one separator remains, use it for all
+-- remaining input lines.
 -- Note, that pattern matching in monadic function will hang Backward State
 -- monad, because it will require to evaluate result even for looking what
 -- next state will be. So i should either use lazy pattern matching or pattern
@@ -115,8 +77,10 @@ splitTextLine x     = BState (f x) >>= \ ~(xs, p) -> return (ZipList' xs, p)
       where
         z@(_, p)    = split k x
 
--- FIXME: Add description.
---splitToColumns :: Sep -> Sep -> [String] -> [[Column]]
+-- Split input lines (strings) into columns. First line is treated as
+-- reference (heading) and referenceSep is used to split it. Other are split
+-- by columnSep. If at least one column of a line continues on next line,
+-- lines will be merged column by column.
 splitToColumns :: WordsSeps -> [String] -> [[String]]
 splitToColumns (WordsSeps {referenceSep = refSp, columnSep = colSp})
                     = map getZipList'
@@ -124,8 +88,10 @@ splitToColumns (WordsSeps {referenceSep = refSp, columnSep = colSp})
                         . flip runBState [refSp, colSp]
                         . foldrMerge splitTextLine
 
--- Split ordered columns (Line-s) into phrases. First line is treated as
--- reference, and does not split into phrases.
+-- Split columns (strings) into phrases. First line is treated as reference,
+-- and will not be split into phrases. If this function called after
+-- splitToColumns, functor f will be list, if after reorderColumns it'll be
+-- Line.
 splitToPhrases :: (Functor f) => WordsSeps -> [f String] -> [f [String]]
 splitToPhrases _ []     = []
 splitToPhrases (WordsSeps {phraseSep = phrSp}) (ref : xs)
@@ -133,14 +99,6 @@ splitToPhrases (WordsSeps {phraseSep = phrSp}) (ref : xs)
   where
     split :: String -> [String]
     split               = filter (/= phrSp) . splitBy phrSp
-
-{-
-splitToPhrases :: WordsSeps -> [Line Column] -> [Line [Phrase]]
-splitToPhrases _     [] = []
-splitToPhrases (WordsSeps {phraseSep = phrSp}) (ref : xs)
-                        = let ref' = mapLine1 (: []) ref
-                              xs'  = map (mapLine1 (splitBy phrSp)) xs
-                          in  ref' : xs'-}
 
 -- Convert list of lines (list of lists) into list of Line-s. This will
 -- reorder elements in lines according to supplied new column order. First
@@ -153,57 +111,14 @@ reorderColumns eq colNames xs@(refs : _)
   where
     colOrder :: [Index]
     colOrder            = elemsOrder eq colNames refs
+    -- I need to store reference as "other" element (see Line description) to
+    -- not execute any actions before its columns.
     makeRef :: [Line a] -> [Line a]
     makeRef (refl : ys) = orderList [] (joinLine id id refl) : ys
 
-{-
-makeRef :: [Line Column] -> [Line Column]
-makeRef []          = []
-makeRef (refl : ys) = let ref' = concat $ joinLine id (refSp ++) refl
-                      in  orderList [] [ref'] : ys
-
-makeRef :: [Line a] -> [Line a]-}
-
-{-
--- Order columns (convert to Line-s) according to supplied new column order.
-reorderColumns :: [Column] -> WordsSeps -> [[Column]] -> [Line Column]
-reorderColumns _        _     []        = []
-reorderColumns colNames (WordsSeps {referenceSep = refSp}) (ref : xs)
-                        = let ref' = map dropSpaces ref
-                          in  makeRef $ orderColumns (==) colNames (ref' : xs)
-  where
-    -- I need to join reference into one "other" element (see Line
-    -- description) to output it at once without any actions have been
-    -- executed before.
-    makeRef :: [Line Column] -> [Line Column]
-    makeRef []          = []
-    makeRef (refl : ys) = let ref' = concat $ joinLine id (refSp ++) refl
-                          in  orderList [] [ref'] : ys
--}
-
--- FIXME: Change order of arguments for elemsOrder and other?
-{-
-newtype Ref             = Ref {getRef :: String}
-  deriving (Show, Eq)
-reorderColumns' :: WordsSeps -> [String] -> [[Column']] -> [Line Column']
-reorderColumns' _ _ []  = []
-reorderColumns' (WordsSeps {referenceSep = refSp}) colNames xs@(ref : _)
-                        = makeRef . map (orderList colOrder) $ xs
-  where
-    colOrder :: [String] -> [Column] -> [Index]
-    colOrder :: [Index]
-    colOrder            = let ref' = map dropSpaces . concat $ ref
-                          in  elemsOrder (==) ref' colNames
-    -- I need to join reference into one "other" element (see Line
-    -- description) to output it at once without any actions have been
-    -- executed before.
-    makeRef :: [Line Column'] -> [Line Column']
-    makeRef []          = []
-    makeRef (refl : ys) = let ref' = concat $ joinLine id (refSp ++) refl
-                          in  orderList [] [ref'] : ys-}
-
+-- FIXME: Rename to "shuffleLines" and remove order argument?
 -- Shuffle (or not) lines.
-reorderLines :: String -> [Line a] -> IO [Line a]
+reorderLines :: String -> [a] -> IO [a]
 reorderLines _         []   = return []
 reorderLines lineOrder xl@(x : xs)
   | lineOrder == "shuffle"  = do

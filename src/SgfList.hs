@@ -103,7 +103,6 @@ indsByElemsM eq ks  = foldrM (\x -> BState . onlyElems p x) []
   where
     p x             = any (`eq` x) ks
 
--- FIXME: Reorder js/xs and ks/xs into natural order!
 -- Unwrap monad from list indexing functions.
 elemsByInds :: [Index] -> [a] -> [a]
 elemsByInds js      = fst . flip runBState indBase . elemsByIndsM js
