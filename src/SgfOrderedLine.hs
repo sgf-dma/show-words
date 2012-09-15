@@ -26,8 +26,8 @@ instance Functor Line where
 -- Convert list to Line by splitting to list of ordered elements and list of
 -- other elements.
 orderList :: [Index] -> [a] -> Line a
-orderList order     = Line  <$> (\xs -> order >>= elemByInd xs)
-                            <*> (`elemsByNotInds` order)
+orderList order     = Line  <$> (\xs -> order >>= flip elemByInd xs)
+                            <*> (order `elemsByNotInds`)
 
 -- map function f over ordered elements and function g over other elements.
 mapLine :: (a -> b) -> (a -> b) -> Line a -> Line b

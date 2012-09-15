@@ -1,6 +1,12 @@
 
 import SgfList
 
+runAll :: [Bool]
+runAll              = runAllTests testSplitBy
+                        : runAllTests testSplitToColumns
+                        : []
+
+
 runAllTests :: (Eq a) => [(a, a)] -> Bool
 runAllTests         = all id . runTests
 

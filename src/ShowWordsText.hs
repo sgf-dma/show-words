@@ -152,7 +152,7 @@ reorderColumns eq colNames xs@(refs : _)
                         = makeRef . map (orderList colOrder) $ xs
   where
     colOrder :: [Index]
-    colOrder            = elemsOrder eq refs colNames
+    colOrder            = elemsOrder eq colNames refs
     makeRef :: [Line a] -> [Line a]
     makeRef (refl : ys) = orderList [] (joinLine id id refl) : ys
 

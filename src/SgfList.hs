@@ -105,36 +105,38 @@ indsByElemsM eq ks  = foldrM (\x -> BState . onlyElems p x) []
 
 -- FIXME: Reorder js/xs and ks/xs into natural order!
 -- Unwrap monad from list indexing functions.
-elemsByInds :: [a] -> [Index] -> [a]
-elemsByInds xs js       = fst . runBState (elemsByIndsM js xs) $ indBase
+elemsByInds :: [Index] -> [a] -> [a]
+elemsByInds js      = fst . flip runBState indBase . elemsByIndsM js
 
-elemsByNotInds :: [a] -> [Index] -> [a]
-elemsByNotInds xs js    = fst . runBState (elemsByNotIndsM js xs) $ indBase
+elemsByNotInds :: [Index] -> [a] -> [a]
+elemsByNotInds js   = fst . flip runBState indBase . elemsByNotIndsM js
 
 indsByElems :: (a -> a -> Bool)
-            -> [a]  -- List, where i'm searching for.
             -> [a]  -- Elements, which indexes i'm searching for.
+            -> [a]  -- List, where i'm searching for.
             -> [Index]
-indsByElems eq xs ks    = fst . runBState (indsByElemsM eq ks xs) $ indBase
+indsByElems eq ks   = fst . flip runBState indBase . indsByElemsM eq ks
 
 -- Some more specific "instances" of above functions.
-elemByInd :: [a] -> Index -> [a]
-elemByInd xs j      = elemsByInds xs [j]
+elemByInd :: Index -> [a] -> [a]
+elemByInd j         = elemsByInds [j]
 
 indsByElem :: (a -> a -> Bool)
-           -> [a]   -- List, where i'm searching for.
            -> a     -- Element, which index i'm searching for.
+           -> [a]   -- List, where i'm searching for.
            -> [Index]
-indsByElem eq xs k  = indsByElems eq xs [k]
+indsByElem eq k     = indsByElems eq [k]
 
 -- Convert list of elements into list of corresponding indexes in "reference"
 -- list. Indexes comes in the same order as elements i have searched for,
 -- instead of index increase order, which will have result of indsByElems.
 elemsOrder :: (a -> a -> Bool)
-           -> [a]   -- List, where i'm searching for.
            -> [a]   -- Elements, which indexes i'm searching for.
+           -> [a]   -- List, where i'm searching for.
            -> [Index]
-elemsOrder eq       = concatMap . indsByElem eq
+--elemsOrder eq ks xs = concatMap . indsByElem eq
+--elemsOrder eq ks xs = concatMap (\k -> indsByElem eq k xs) $ ks
+elemsOrder eq ks xs = ks >>= flip (indsByElem eq) xs
 
 
 -- Sublists.
@@ -233,5 +235,5 @@ transpM             = foldrM (\x -> BState . f x) []
 shuffleList :: RandomGen g => g -> [a] -> [a]
 shuffleList g xs    = let lx = length xs
                           ts = transp (take lx [1..]) $ randomRs (1, lx) g
-                      in  ts >>= elemByInd xs
+                      in  ts >>= flip elemByInd xs
 
