@@ -9,6 +9,7 @@ module SgfList
     , elemsByNotInds
     , indsByElems
     , elemByInd
+    , elemByInd1
     , indsByElem
     , elemsOrder
     , dropWhileEnd
@@ -70,25 +71,42 @@ indBase             = 1
 
 -- Folding functions for use in State monads for indexing list.
 -- 
--- Add list element x to the accumulator z only if its index s satisfies
--- predicate.
+-- Add list element x to the accumulator z only if its index s equals to one
+-- element in "key" list.
 onlyInds :: (Index -> Bool) -> a -> [a] -> Index -> ([a], Index)
-onlyInds p x z s
-  | p s             = (x : z, s + 1)
-  | otherwise       = (z, s + 1)
+onlyInds p x zs s
+  | p s             = (x : zs, s + 1)
+  | otherwise       = (zs, s + 1)
 
 -- Reverse of onlyInds: add list index s to the accumulator only if its
 -- element x satisfies predicate.
 onlyElems :: (a -> Bool) -> a -> [Index] -> Index -> ([Index], Index)
-onlyElems p x z s
-  | p x             = (s : z, s + 1)
-  | otherwise       = (z, s + 1)
+onlyElems p x zs s
+  | p x             = (s : zs, s + 1)
+  | otherwise       = (zs, s + 1)
+
+-- Versions with fixed point.
+onlyInds1 :: a -> [a] -> (Index, [Index]) -> ([a], (Index, [Index]))
+onlyInds1 _ _  (s, []) = ([], (s + 1, []))
+onlyInds1 x zs (s, js)
+  | s `elem` js     = (x : zs, (s + 1, filter (/= s) js))
+  | otherwise       = (zs, (s + 1, js))
+
+onlyElems1 :: (a -> a -> Bool)
+          -> a -> [Index] -> (Index, [a]) -> ([Index], (Index, [a]))
+onlyElems1 _  _ _  (s, []) = ([], (s + 1, []))
+onlyElems1 eq x zs (s, ks)
+  | any (x `eq`) ks = (s : zs, (s + 1, filter (not . (x `eq`)) ks))
+  | otherwise       = (zs, (s + 1, ks))
 
 -- Index list by right folding it inside Backward State monad.
 --
 -- Find all elements with specified indexes.
 elemsByIndsM :: [Index] -> [a] -> BState Index [a]
 elemsByIndsM js     = foldrM (\x -> BState . onlyInds (`elem` js) x) []
+
+elemsByIndsM1 :: [a] -> BState (Index, [Index]) [a]
+elemsByIndsM1       = foldrM (\x -> BState . onlyInds1 x) []
 
 -- Complement to elemsByInds. Find all elements with _not_ specified indexes.
 elemsByNotIndsM :: [Index] -> [a] -> BState Index [a]
@@ -103,9 +121,15 @@ indsByElemsM eq ks  = foldrM (\x -> BState . onlyElems p x) []
   where
     p x             = any (`eq` x) ks
 
+indsByElemsM1 :: (a -> a -> Bool) -> [a] -> BState (Index, [a]) [Index]
+indsByElemsM1 eq    = foldrM (\x -> BState . onlyElems1 eq x) []
+
 -- Unwrap monad from list indexing functions.
 elemsByInds :: [Index] -> [a] -> [a]
 elemsByInds js      = fst . flip runBState indBase . elemsByIndsM js
+
+elemsByInds1 :: [Index] -> [a] -> [a]
+elemsByInds1 js xs  = fst $ runBState (elemsByIndsM1 xs) (indBase, js)
 
 elemsByNotInds :: [Index] -> [a] -> [a]
 elemsByNotInds js   = fst . flip runBState indBase . elemsByNotIndsM js
@@ -116,9 +140,19 @@ indsByElems :: (a -> a -> Bool)
             -> [Index]
 indsByElems eq ks   = fst . flip runBState indBase . indsByElemsM eq ks
 
+indsByElems1 :: (a -> a -> Bool)
+            -> [a]  -- Elements, which indexes i'm searching for.
+            -> [a]  -- List, where i'm searching for.
+            -> [Index]
+indsByElems1 eq ks   = fst . flip runBState (indBase, ks) . indsByElemsM1 eq
+
+
 -- Some more specific "instances" of above functions.
 elemByInd :: Index -> [a] -> [a]
 elemByInd j         = elemsByInds [j]
+
+elemByInd1 :: Index -> [a] -> [a]
+elemByInd1 j         = elemsByInds1 [j]
 
 indsByElem :: (a -> a -> Bool)
            -> a     -- Element, which index i'm searching for.
