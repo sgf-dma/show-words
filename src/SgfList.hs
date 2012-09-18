@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 
 module SgfList
     ( BState (..)
@@ -5,12 +6,14 @@ module SgfList
     , Index
     , indBase
     , foldrM
+    , elemByInd
     , elemsByInds
     , elemsByNotInds
+    , indByElem
+    , indsByElems1
     , indsByElems
-    , elemByInd
-    , elemByInd1
-    , indsByElem
+    , indsByNotElems
+    , elemsOrder1
     , elemsOrder
     , dropWhileEnd
     , splitBy
@@ -27,15 +30,12 @@ import Control.Monad.State
 import Control.Monad.Reader
 import System.Random (RandomGen, randomRs)
 
--- Reimplement list indexing part of Data.List using Backward State monad. And
--- some more useful functions for lists using State monads.
+-- Reimplementation of list indexing part of Data.List using Backward State
+-- monad. And some more useful functions for lists using State monads.
 
 foldrM :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
 foldrM _ z []         = return z
 foldrM g z (x : xs)   = foldrM g z xs >>= g x
-{-
-foldrM :: (Foldable t, Monad m) => (a -> b -> m b) -> b -> t a -> m b
-foldrM g z xs       = foldr (\x mz -> mz >>= g x) (return z) xs-}
 foldlM :: (Monad m) => (b -> a -> m b) -> b -> [a] -> m b
 foldlM _ z []         = return z
 foldlM g z (x : xs)   = g z x >>= \z' -> foldlM g z' xs
@@ -71,104 +71,132 @@ indBase             = 1
 
 -- Folding functions for use in State monads for indexing list.
 -- 
--- Add list element x to the accumulator z only if its index s equals to one
--- element in "key" list.
-onlyInds :: (Index -> Bool) -> a -> [a] -> Index -> ([a], Index)
-onlyInds p x zs s
-  | p s             = (x : zs, s + 1)
-  | otherwise       = (zs, s + 1)
+-- If all elements from key list ks satisfy predicate p, add x to the result
+-- zs. This folding function will not work on infinity list.
+allElems :: ([a] -> Bool) -> [a] -> b -> [b] -> ([b], [a])
+allElems p ks x zs
+  | p ks            = (x : zs, ks)
+  | otherwise       = (zs, ks)
 
--- Reverse of onlyInds: add list index s to the accumulator only if its
--- element x satisfies predicate.
-onlyElems :: (a -> Bool) -> a -> [Index] -> Index -> ([Index], Index)
-onlyElems p x zs s
-  | p x             = (s : zs, s + 1)
-  | otherwise       = (zs, s + 1)
+-- If at least one element from key list ks satisfies predicate p, add x to
+-- the result zs and remove matched key from ks (so each key can match only
+-- once). This version (unlike allElems) has fixed point, when there is no
+-- more keys left, and, hence, will work on infinity list.
+anyElems :: (a -> Bool) -> [a] -> b -> [b] -> ([b], [a])
+anyElems _ [] _ _   = ([], [])  -- fixed point.
+anyElems p ks x zs
+  | any p ks        = (x : zs, filter (not . p) ks)
+  | otherwise       = (zs, ks)
 
--- Versions with fixed point.
-onlyInds1 :: a -> [a] -> (Index, [Index]) -> ([a], (Index, [Index]))
-onlyInds1 _ _  (s, []) = ([], (s + 1, []))
-onlyInds1 x zs (s, js)
-  | s `elem` js     = (x : zs, (s + 1, filter (/= s) js))
-  | otherwise       = (zs, (s + 1, js))
-
-onlyElems1 :: (a -> a -> Bool)
-          -> a -> [Index] -> (Index, [a]) -> ([Index], (Index, [a]))
-onlyElems1 _  _ _  (s, []) = ([], (s + 1, []))
-onlyElems1 eq x zs (s, ks)
-  | any (x `eq`) ks = (s : zs, (s + 1, filter (not . (x `eq`)) ks))
-  | otherwise       = (zs, (s + 1, ks))
 
 -- Index list by right folding it inside Backward State monad.
 --
--- Find all elements with specified indexes.
-elemsByIndsM :: [Index] -> [a] -> BState Index [a]
-elemsByIndsM js     = foldrM (\x -> BState . onlyInds (`elem` js) x) []
-
-elemsByIndsM1 :: [a] -> BState (Index, [Index]) [a]
-elemsByIndsM1       = foldrM (\x -> BState . onlyInds1 x) []
-
--- Complement to elemsByInds. Find all elements with _not_ specified indexes.
-elemsByNotIndsM :: [Index] -> [a] -> BState Index [a]
-elemsByNotIndsM js  = foldrM (\x -> BState . onlyInds (`notElem` js) x) []
-
--- Reverse of elemsByInds. Find all indexes of specified elements.
-indsByElemsM :: (a -> a -> Bool)
-             -> [a] -- Elements, which indexes i'm searching for.
-             -> [a] -- List, where i'm searching for.
-             -> BState Index [Index]
-indsByElemsM eq ks  = foldrM (\x -> BState . onlyElems p x) []
-  where
-    p x             = any (`eq` x) ks
-
-indsByElemsM1 :: (a -> a -> Bool) -> [a] -> BState (Index, [a]) [Index]
-indsByElemsM1 eq    = foldrM (\x -> BState . onlyElems1 eq x) []
-
--- Unwrap monad from list indexing functions.
+-- I assume, that keys (or indexes) list is _not_ sorted and for every key
+-- (index) i should check every element of keys (indexes) list. Hence, if keys
+-- (indexes) list is infinity and key (index) does not present in it (or
+-- already have been found and deleted), all below functions will search
+-- indefinitely. Though, some of them can work on infinity input list.
+--
+-- Find all elements with specified indexes. Works on infinity input list.
 elemsByInds :: [Index] -> [a] -> [a]
-elemsByInds js      = fst . flip runBState indBase . elemsByIndsM js
+elemsByInds js      = fst . flip runBState (indBase, js) . elemsByIndsM
 
-elemsByInds1 :: [Index] -> [a] -> [a]
-elemsByInds1 js xs  = fst $ runBState (elemsByIndsM1 xs) (indBase, js)
+elemsByIndsM :: [a] -> BState (Index, [Index]) [a]
+elemsByIndsM        = foldrM (\x -> BState . f x) []
+  where
+    f x zs (s, js)  = fmap (s + 1, ) $ anyElems (s ==) js x zs
 
+-- Complement to elemsByInds. Find all elements with indexes _not_ in the
+-- supplied list.  Does not work on infinity input list.
 elemsByNotInds :: [Index] -> [a] -> [a]
-elemsByNotInds js   = fst . flip runBState indBase . elemsByNotIndsM js
+elemsByNotInds js   = fst . flip runBState (indBase, js) . elemsByNotIndsM
 
-indsByElems :: (a -> a -> Bool)
-            -> [a]  -- Elements, which indexes i'm searching for.
-            -> [a]  -- List, where i'm searching for.
-            -> [Index]
-indsByElems eq ks   = fst . flip runBState indBase . indsByElemsM eq ks
+elemsByNotIndsM :: [a] -> BState (Index, [Index]) [a]
+elemsByNotIndsM     = foldrM (\x -> BState . f x) []
+  where
+    f x zs (s, js)  = fmap (s + 1, ) $ allElems (all (s /=)) js x zs
 
+-- Reverse of elemByInds. Find _first_ index of all elements in the supplied
+-- list.  Works on infinity input list.
 indsByElems1 :: (a -> a -> Bool)
             -> [a]  -- Elements, which indexes i'm searching for.
             -> [a]  -- List, where i'm searching for.
             -> [Index]
 indsByElems1 eq ks   = fst . flip runBState (indBase, ks) . indsByElemsM1 eq
 
+indsByElemsM1 :: (a -> a -> Bool) -> [a] -> BState (Index, [a]) [Index]
+indsByElemsM1 eq    = foldrM (\x -> BState . f x) []
+  where
+    f x zs (s, ks)  = fmap (s + 1, ) $ anyElems (x `eq`) ks s zs
+
+-- Find _all_ indexes of all elements in the supplied list.  Does not work on
+-- infinity input list.
+indsByElems :: (a -> a -> Bool)
+            -> [a]  -- Elements, which indexes i'm searching for.
+            -> [a]  -- List, where i'm searching for.
+            -> [Index]
+indsByElems eq ks   = fst . flip runBState (indBase, ks) . indsByElemsM eq
+
+indsByElemsM :: (a -> a -> Bool) -> [a] -> BState (Index, [a]) [Index]
+indsByElemsM eq     = foldrM (\x -> BState . f x) []
+  where
+    f _ _  (s, [])  = fmap (s + 1, ) $ ([], [])  -- fixed point.
+    f x zs (s, ks)  = fmap (s + 1, ) $ allElems p ks s zs
+      where p = any (x `eq`)
+
+-- Complement to indsByElems. Find all indexes of elements _not_ in the
+-- supplied list.  Does not work on infinity input list.
+indsByNotElems :: (a -> a -> Bool)
+               -> [a]  -- Elements, which indexes i'm searching for.
+               -> [a]  -- List, where i'm searching for.
+               -> [Index]
+indsByNotElems eq ks = fst . flip runBState (indBase, ks) . indsByNotElemsM eq
+
+indsByNotElemsM :: (a -> a -> Bool) -> [a] -> BState (Index, [a]) [Index]
+indsByNotElemsM eq  = foldrM (\x -> BState . f x) []
+  where
+    f x zs (s, ks)  = fmap (s + 1, ) $ allElems p ks s zs
+      where p = all (not . (x `eq`))
+
 
 -- Some more specific "instances" of above functions.
+--
+-- Works on infinity list.
 elemByInd :: Index -> [a] -> [a]
 elemByInd j         = elemsByInds [j]
 
-elemByInd1 :: Index -> [a] -> [a]
-elemByInd1 j         = elemsByInds1 [j]
+-- Works on infinity list.
+indByElem :: (a -> a -> Bool)
+            -> a     -- Element, which index i'm searching for.
+            -> [a]   -- List, where i'm searching for.
+            -> [Index]
+indByElem eq k      = indsByElems1 eq [k]
 
+-- Does not work on infinity list.
 indsByElem :: (a -> a -> Bool)
            -> a     -- Element, which index i'm searching for.
            -> [a]   -- List, where i'm searching for.
            -> [Index]
 indsByElem eq k     = indsByElems eq [k]
 
--- Convert list of elements into list of corresponding indexes in "reference"
--- list. Indexes comes in the same order as elements i have searched for,
--- instead of index increase order, which will have result of indsByElems.
+-- Convert list of elements into list of _first_ element's indexes in
+-- "reference" list. Indexes comes in the same order as elements, which i have
+-- searched for (instead of indexes in increasing order, which result of
+-- indsByElems will have).
+elemsOrder1 :: (a -> a -> Bool)
+            -> [a]   -- Elements, which indexes i'm searching for.
+            -> [a]   -- List, where i'm searching for.
+            -> [Index]
+elemsOrder1 eq ks xs = ks >>= flip (indByElem eq) xs
+
+-- Convert list of elements into list of _all_ element's indexes in
+-- "reference" list. Indexes comes in the same order as elements, which i have
+-- searched for (instead of indexes in increasing order, which result of
+-- indsByElems will have).
 elemsOrder :: (a -> a -> Bool)
            -> [a]   -- Elements, which indexes i'm searching for.
            -> [a]   -- List, where i'm searching for.
            -> [Index]
---elemsOrder eq ks xs = concatMap . indsByElem eq
---elemsOrder eq ks xs = concatMap (\k -> indsByElem eq k xs) $ ks
 elemsOrder eq ks xs = ks >>= flip (indsByElem eq) xs
 
 
@@ -227,6 +255,7 @@ foldrMerge g        = foldrM (\x zs -> g x >>= return . f zs) []
       | p           = x' `mappend` z : zs
       | otherwise   = x' : z : zs
 
+-- FIXME: What is this function for? Delete it?
 foldrMerge' :: (Monad m, Monoid b) => (a -> (m b, Bool)) -> [a] -> m [b]
 foldrMerge' g       = foldrM (\(mx, p) zs -> mx >>= return . f p zs) [] . map g
   where
@@ -245,6 +274,9 @@ zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
 zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 
+
+-- Random.
+--
 -- Pick from a list xs first occurences of all elements found in reference
 -- list ks.  Stop processing a list xs if all reference elements have found.
 -- Works with inifinity list xs, if it contain all elements from reference
@@ -261,9 +293,6 @@ transpM             = foldrM (\x -> BState . f x) []
       | x `elem` ks     = (x : zs, filter (/= x) ks)
       | otherwise       = (zs, ks)
 
-
--- Random.
---
 -- Shuffle list elements.
 shuffleList :: RandomGen g => g -> [a] -> [a]
 shuffleList g xs    = let lx = length xs
