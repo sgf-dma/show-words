@@ -69,6 +69,15 @@ type Index          = Int
 indBase :: Index
 indBase             = 1
 
+-- FIXME: For v3. Make elemsByInds and indsByElems preserving indexes (keys)
+-- order.  I.e. elements in resulting list must be on the positions
+-- corresponding to their keys.  Implement this using zipper. This also should
+-- make unnecessary construction like
+--
+--      \xs -> order >>= flip elemByInd xs
+--
+-- and speed it up dramatically.
+
 -- Folding functions for use in State monads for indexing list.
 -- 
 -- If all elements from key list ks satisfy predicate p, add x to the result
@@ -252,15 +261,6 @@ foldrMerge g        = foldrM (\x zs -> g x >>= return . f zs) []
   where
     f [] (x', _)    = [x']
     f (z : zs) (x', p)
-      | p           = x' `mappend` z : zs
-      | otherwise   = x' : z : zs
-
--- FIXME: What is this function for? Delete it?
-foldrMerge' :: (Monad m, Monoid b) => (a -> (m b, Bool)) -> [a] -> m [b]
-foldrMerge' g       = foldrM (\(mx, p) zs -> mx >>= return . f p zs) [] . map g
-  where
-    f _ [] x'       = [x']
-    f p (z : zs) x'
       | p           = x' `mappend` z : zs
       | otherwise   = x' : z : zs
 

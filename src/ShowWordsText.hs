@@ -116,7 +116,16 @@ reorderColumns eq colNames xs@(refs : _)
     makeRef :: [Line a] -> [Line a]
     makeRef (refl : ys) = orderList [] (joinLine id id refl) : ys
 
+-- FIXME: For v3. Add support for cards. Oh.. yeah, this is not going to be
+-- easy.  I should add reorderCards. reorderLines should reorder lines in one
+-- Card (or all). This also may be implemented more generally: add support for
+-- tag column, which have arbitrary number of tags. And define operations with
+-- them.
 -- FIXME: Rename to "shuffleLines" and remove order argument?
+-- FIXME: For v2.1. Shuffle lines according to statistics. Make words with
+-- more mistakes having more chances to appear at the beginning. Or i can
+-- simply shuffle lines in group with the same error rate, and output groups
+-- in error rate decreasing order.
 -- Shuffle (or not) lines.
 reorderLines :: String -> [a] -> IO [a]
 reorderLines _         []   = return []
