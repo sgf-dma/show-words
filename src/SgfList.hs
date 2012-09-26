@@ -18,6 +18,7 @@ module SgfList
     , dropWhileEnd
     , splitBy
     , foldrMerge
+    , concatSeq
     , zipWith'
     , zipApp
     , transp
@@ -26,6 +27,7 @@ module SgfList
   where
 
 import Data.Monoid
+import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Control.Applicative
 import Control.Monad.State
@@ -264,6 +266,10 @@ foldrMerge g        = foldrM (\x zs -> g x >>= return . f zs) []
     f (z : zs) (x', p)
       | p           = x' `mappend` z : zs
       | otherwise   = x' : z : zs
+
+-- Sequence Traversable, then concatenate Foldable result in monad m.
+concatSeq :: (T.Traversable t, Monad m) => t (m [a]) -> m [a]
+concatSeq           = liftM F.concat . T.sequence
 
 
 -- Zipping.
