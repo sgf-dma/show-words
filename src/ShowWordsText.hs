@@ -10,6 +10,7 @@ module ShowWordsText
   where
 
 import Data.Char (isSpace)
+import qualified Data.Foldable as F
 import System.Random (getStdGen, newStdGen)
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 
@@ -114,7 +115,7 @@ reorderColumns eq colNames xs@(refs : _)
     -- I need to store reference as "other" element (see Line description) to
     -- not execute any actions before its columns.
     makeRef :: [Line a] -> [Line a]
-    makeRef (refl : ys) = orderList [] (joinLine id id refl) : ys
+    makeRef (refl : ys) = orderList [] (F.foldr (:) [] refl) : ys
 
 -- FIXME: For v3. Add support for cards. Oh.. yeah, this is not going to be
 -- easy.  I should add reorderCards. reorderLines should reorder lines in one

@@ -9,9 +9,6 @@ module SgfOrderedLine
     , mapOthers
     , zipAppOrdered
     , zipAppOthers
-    , mapLine
-    , mapLine1
-    , joinLine
     )
   where
 
@@ -24,12 +21,6 @@ import Control.Applicative
 
 import SgfList
 
--- FIXME: Line proposition. To make a list from line use fold (instead
--- joinLine). Hence, Line should be Foldable.
--- FIXME: Line proposition. To map a list to Line use mapM in State monad.
--- Hence, Line is Traversable. Is there a better way to do this?
--- FIXME: Line proposition. To map over ordered or other elements only use
--- Applicative.
 -- FIXME: With inifity index list orderList will hang on any attempt to
 -- evaluate "other" elements. Though, this may work in some cases. E.g. with
 -- (<*>), if f a contains empty "other" part, it may work. For this to work i
@@ -63,7 +54,8 @@ instance T.Traversable Line where
     traverse f (Line xs ys) = Line <$> (T.traverse f xs) <*> (T.traverse f ys)
     --sequenceA (Line xs ys)  = Line <$> T.sequenceA xs <*> T.sequenceA ys
 -- For "scoping" functions on Line to either only "ordered" or only "other"
--- elements.
+-- elements. Use onlyOrdered and onlyOthers first to split Line into two, then
+-- apply function to corresponding one, then merge them back using mappend.
 instance Monoid (Line a) where
     mempty          = Line [] []
     (Line xs ys) `mappend` (Line xs' ys')
@@ -100,30 +92,4 @@ zipAppOrdered fs    = mappend <$> zipApp fs . onlyOrdered <*> onlyOthers
 
 zipAppOthers :: [a -> a] -> Line a -> Line a
 zipAppOthers fs     = mappend <$> onlyOrdered <*> zipApp fs . onlyOthers
-
-
--- FIXME: Below is old interface. Either delete or move to test file.
-
--- map function f over ordered elements and function g over other elements.
-mapLine :: (a -> b) -> (a -> b) -> Line a -> Line b
-mapLine f g (Line xs ys)   = Line (map f xs) (map g ys)
-
--- FIXME: Use fmap instead.
-mapLine1 :: (a -> b) -> Line a -> Line b
-mapLine1 f           = mapLine f f
-
--- FIXME: Use F.fold instead.
--- Convert Line to list and apply some functions to some elements.
--- Function f applied to all ordered elements, except first (e.g. waiting for
--- a key before outputting next element). 
--- Function g is "joining" function. It is applied to all elements (both
--- ordered and others), except first (e.g. prepend spaces to strings to make
--- resulted list suitable for concat).
-joinLine :: (a -> a) -> (a -> a) -> Line a -> [a]
-joinLine _ _ (Line [] [])       = []
-joinLine _ g (Line [] (y : ys)) = y : map g ys
-joinLine f g (Line (x : xs) ys) = x : (map (g . f) xs ++ map g ys)
-
-joinLineM :: Monad m => (a -> m a) -> (a -> m a) -> Line a -> [m a]
-joinLineM f g       = joinLine (>>= f) (>>= g) . fmap return
 

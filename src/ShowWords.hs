@@ -145,12 +145,12 @@ showWords wSps = do
     hSetEcho stdin False
     -- FIXME: Applicative (->) with wSps ?
     xs <- reorderLines lineOrder
-            $ map (mapLine1 (map dropSpaces))
+            $ map (fmap (map dropSpaces))
             $ splitToPhrases wSps
             $ reorderColumns refEq colNames
             $ splitToColumns wSps
             $ lines contents
-    putPhrases' mode wSps xs
+    putPhrases mode wSps xs
     putStrF "Bye!\n"
   where
     -- Equality test for reference columns.

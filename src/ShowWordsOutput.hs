@@ -4,7 +4,6 @@ module ShowWordsOutput
     , waitKey
     , checkAnswer
     , putPhrases
-    , putPhrases'
     )
   where
 
@@ -48,7 +47,7 @@ checkAnswer p       = do
 -- treated as a question.  Other columns (and phrases they contain) will be
 -- outputted all at once and execution immediately porceeds to next line.
 putPhrases :: (String -> IO String) -> WordsSeps -> [Line [String]] -> IO ()
-putPhrases  f
+putPhrases f
             (WordsSeps
               { columnSep = colSp
               , phraseSep = phrSp
@@ -62,41 +61,11 @@ putPhrases  f
   where
     putLine :: String -> Line [String] -> IO ()
     putLine sp = mapM_ (>>= putStrF)
-                . concatMap joinPhrases                    -- :: -> [IO String]
-                . joinLine (map (>>= f')) (joinColumns sp) -- :: -> [[IO String]]
-                . mapLine1 (map return)                    -- :: -> Line [IO String]
-      where
-        f' :: String -> IO String
-        f' []   = return []
-        f' xs   = f xs
-        joinColumns :: String -> [IO String] -> [IO String]
-        joinColumns sp []           = [return colSp]
-        joinColumns sp (mx : mxs)   = ((sp ++) <$> mx) : mxs
-        joinPhrases :: [IO String] -> [IO String]
-        joinPhrases []          = []
-        joinPhrases (mx : mxs)  = mx : map ((phrSp ++) <$>) mxs
-
--- Rewrite using new interface.
-putPhrases' :: (String -> IO String) -> WordsSeps -> [Line [String]] -> IO ()
-putPhrases' f
-            (WordsSeps
-              { columnSep = colSp
-              , phraseSep = phrSp
-              , referenceSep = refSp
-              })
-            (ref : xs)
-                    = do
-                        putLine refSp ref
-                        putStrF "\n"
-                        mapM_ (\x -> putLine colSp x >> putStrF "\n") xs
-  where
-    putLine :: String -> Line [String] -> IO ()
-    putLine sp = mapM_ (>>= putStrF)
-                . concatMap joinPhrases                    -- :: -> [IO String]
-                . F.foldr (:) []
-                . inlineSeps (joinColumns sp)
-                . inlineAction (map (>>= f'))
-                . mapLine1 (map return)                    -- :: -> Line [IO String]
+                . concatMap joinPhrases         -- :: -> [IO String]
+                . F.foldr (:) []                -- :: -> [[IO String]]
+                . inlineSeps (joinColumns sp)   -- :: -> Line [IO String]
+                . inlineAction (map (>>= f'))   -- :: -> Line [IO String]
+                . fmap (map return)             -- :: -> Line [IO String]
       where
         f' :: String -> IO String
         f' []   = return []
@@ -112,15 +81,6 @@ putPhrases' f
 inlineSeps :: (a -> a) -> Line a -> Line a
 inlineSeps g        = zipApp (id : repeat g)
 
-{-
-mapAction :: (a -> a) -> Line a -> Line a
-mapAction g         = fst . flip runState (id : repeat g) . mapOrderedM f
-  where
-    f x             = do
-                        (f : fs) <- get
-                        put fs
-                        return (f x)-}
-
 inlineAction :: (a -> a) -> Line a -> Line a
 inlineAction g      = zipAppOrdered (id : repeat g)
 
@@ -128,11 +88,6 @@ inlineAction' :: (a -> a) -> Line a -> Line a
 inlineAction' g     = mappend
                         <$> zipApp (id : repeat g) . onlyOrdered
                         <*> onlyOthers
-
-inlineAction'' :: (a -> a) -> Line a -> Line a
-inlineAction'' g x   = let xOrd = onlyOrdered x
-                           xOth = onlyOthers x
-                       in  (zipApp (id : repeat g) xOrd) `mappend` xOth
 
 joinLine' :: (a -> a) -> (a -> a) -> Line a -> [a]
 joinLine' f g       = F.foldr (:) [] . inlineSeps g . inlineAction f
