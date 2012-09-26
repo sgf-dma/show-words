@@ -19,19 +19,21 @@ module SgfList
     , splitBy
     , foldrMerge
     , zipWith'
+    , zipApp
     , transp
     , shuffleList
     )
   where
 
 import Data.Monoid
+import qualified Data.Traversable as T
 import Control.Applicative
 import Control.Monad.State
 import Control.Monad.Reader
 import System.Random (RandomGen, randomRs)
 
 -- Reimplementation of list indexing part of Data.List using Backward State
--- monad. And some more useful functions for lists using State monads.
+-- monad. And some other useful functions for lists using State monads.
 
 foldrM :: (Monad m) => (a -> b -> m b) -> b -> [a] -> m b
 foldrM _ z []         = return z
@@ -57,9 +59,8 @@ newtype ZipList' a  = ZipList' {getZipList' :: [a]}
   deriving (Show)
 instance Monoid a => Monoid (ZipList' a) where
     mempty          = ZipList' []
-    x `mappend` y   = let (ZipList' xs) = x
-                          ys = getZipList' y
-                      in  ZipList' $ zipWith' mappend xs ys
+    (ZipList' xs) `mappend` (ZipList' ys)
+                    = ZipList' (zipWith' mappend xs ys)
 
 
 -- Index list.
@@ -273,6 +274,15 @@ zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
 zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
 zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
+
+-- "Zippy apply" list of function to some traversable datatype.
+zipApp :: T.Traversable t => [a -> b] -> t a -> t b
+zipApp fs           = fst . flip runState fs . T.mapM f
+  where
+    f x             = do
+                        (f : fs) <- get
+                        put fs
+                        return (f x)
 
 
 -- Random.

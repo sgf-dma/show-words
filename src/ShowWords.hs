@@ -150,7 +150,7 @@ showWords wSps = do
             $ reorderColumns refEq colNames
             $ splitToColumns wSps
             $ lines contents
-    putPhrases mode wSps xs
+    putPhrases' mode wSps xs
     putStrF "Bye!\n"
   where
     -- Equality test for reference columns.
