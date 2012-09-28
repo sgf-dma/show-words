@@ -9,6 +9,7 @@ import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
+import System.Random (getStdGen, newStdGen)
 import Control.Monad.Reader
 
 import ShowWordsConfig
@@ -140,10 +141,8 @@ parseArgs :: IO (Config, [String])
 parseArgs           = do
     argv <- getArgs
     case getOpt Permute optsDescr argv of
-      (xs, ys, []) ->
-          return (foldl (flip ($)) defaultConf xs, ys)
-      (_, _, errs) ->
-          fail (concat errs ++ usageInfo header optsDescr)
+      (xs, ys, []) -> return (foldl (flip ($)) defaultConf xs, ys)
+      (_, _, errs) -> fail (concat errs ++ usageInfo header optsDescr)
   where
     header          = "Usage: show_words [OPTION..] columnNames.."
 
@@ -161,7 +160,10 @@ showWords          = do
             <=< return . lines
             $ contents
     Config {confColumnNames = colNames} <- ask
-    xs' <- reorderLines
+    -- FIXME: Am i really need both?
+    gen <- lift getStdGen
+    _ <- lift newStdGen
+    xs' <- reorderLines gen
             . reorderColumns refEq (map (: []) colNames)
             $ xs
     lift (hSetEcho stdin False)

@@ -10,8 +10,7 @@ module ShowWordsText
 
 import Data.Char (isSpace)
 import qualified Data.Foldable as F
--- FIXME: Move random code to ShowWords?
-import System.Random (getStdGen, newStdGen)
+import System.Random (RandomGen)
 import Control.Monad.Reader
 
 import SgfList
@@ -127,14 +126,11 @@ reorderColumns eq colNames xs@(refs : _)
 -- simply shuffle lines in group with the same error rate, and output groups
 -- in error rate decreasing order.
 -- Shuffle (or not) lines.
-reorderLines :: [a] -> ReaderT Config IO [a]
-reorderLines []         = return []
-reorderLines (x : xs)   = do
+reorderLines :: RandomGen g => g -> [a] -> ReaderT Config IO [a]
+reorderLines gen []         = return []
+reorderLines gen (x : xs)   = do
     Config {confLineOrder = lineOrder} <- ask
     if lineOrder == "shuffle"
-      then do
-            gen <- lift getStdGen
-            _ <- lift newStdGen
-            return (x : shuffleList gen xs)
-      else  return (x : xs)
+      then return (x : shuffleList gen xs)
+      else return (x : xs)
 
