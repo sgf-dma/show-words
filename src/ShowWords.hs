@@ -1,7 +1,10 @@
 
 module ShowWords
     ( WordsSeps (..)
-    , showWords)
+    , showWords
+    , showWords1
+    , showWords0
+    )
   where
 
 import System.IO                -- For hSetEcho, hFlush, stdin, stdout.
@@ -9,8 +12,9 @@ import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
-import Control.Applicative      -- For Applicative ((->) a), <$> and other.
+import Control.Monad.Reader
 
+import ShowWordsOptions
 import ShowWordsText
 import ShowWordsOutput
 
@@ -86,15 +90,6 @@ setMode xs
   | xs == "print"   = waitKey
 --  | xs == "reorder" = return
   | otherwise       = return
-
-data Options        = Options
-                        { optMode         :: String -> IO String
-                        , optLineOrder    :: String
-                        , optFile         :: FilePath
-                        , optColumnSep    :: String
-                        , optPhraseSep    :: String
-                        , optReferenceSep :: String
-                        }
 
 defaultOpts :: Options
 defaultOpts         = Options
@@ -193,4 +188,95 @@ showWords = do
     readFile' file  = do
         contents <- B.readFile file
         return $ decode $ B.unpack contents
+
+
+-- New showWords..
+showWords0 :: IO ()
+showWords0 = do
+    (conf, colNames) <- parseArgs1
+    -- FIXME: Set confColNames here or in parseArgs?
+    runReaderT showWords1 (conf {confColumnNames = colNames})
+
+showWords1 :: ReaderT Config IO ()
+showWords1          = do
+    contents <- readFile'
+    lift (hSetEcho stdin False)
+    Config {confColumnNames = colNames} <- ask
+    xs  <- splitToPhrases1 <=< splitToColumns1 <=< return . lines $ contents
+    xs' <- reorderLines1 . reorderColumns refEq (map (: []) colNames) $ xs
+    putPhrases1 
+        . dropSpaces'
+        $ xs'
+    lift (putStrF "Bye!\n")
+  where
+    readFile' :: ReaderT Config IO String
+    readFile'       = do
+        Config {confInputFile = file} <- ask
+        contents <- lift (B.readFile file)
+        return . decode . B.unpack $ contents
+    -- Equality test for reference columns.
+    refEq :: [String] -> [String] -> Bool
+    refEq xs ys     = map dropSpaces xs == map dropSpaces ys
+    dropSpaces' :: Functor f => [f [String]] -> [f [String]]
+    dropSpaces'     = map (fmap (map dropSpaces))
+
+defaultOpts1 :: Config
+defaultOpts1        = Config
+                        { confMode         = setMode "default"
+                        , confInputFile    = "./words.txt"
+                        , confReferenceSep = " - "
+                        , confColumnSep    = " : "
+                        , confPhraseSep    = "; "
+                        , confColumnNames  = []
+                        , confLineOrder    = "default"
+                        }
+
+optsDescr1 :: [OptDescr (Config -> Config)]
+optsDescr1 = 
+    [ Option    ['m']
+                ["mode"]
+                (ReqArg (\mode conf -> conf {confMode = setMode mode}) "MODE")
+                ("Set operation mode to MODE (default 'reorder').\n"
+                    ++ "Valid values are 'print', 'check', 'reorder'."
+                )
+    , Option    ['f']
+                ["file"]
+                (ReqArg (\file conf -> conf {confInputFile = file}) "FILE")
+                "Read words from FILE (default 'words.txt')."
+    , Option    ['r']
+                ["reference-sep"]
+                (ReqArg (\refSp conf -> conf {confReferenceSep = refSp})
+                        "REFERENCE_SEP"
+                )
+                "Reference (heading) separator (default \" - \")."
+    , Option    ['c']
+                ["column-sep"]
+                (ReqArg (\colSp conf -> conf {confColumnSep = colSp})
+                        "COLUMN_SEP"
+                )
+                "Column separator (default \" : \")."
+    , Option    ['p']
+                ["phrase-sep"]
+                (ReqArg (\phrSp conf -> conf {confPhraseSep = phrSp})
+                        "PHRASE_SEP"
+                )
+                "Phrase separator (default \"; \")."
+    , Option    ['s']
+                ["shuffle"]
+                (NoArg (\conf -> conf {confLineOrder = "shuffle"}))
+                "Shuffle lines (default disabled)."
+    ]
+
+-- FIXME: Set colNames here?
+-- Parse command-line arguments.
+parseArgs1 :: IO (Config, [String])
+parseArgs1          = do
+    argv <- getArgs
+    case getOpt Permute optsDescr1 argv of
+      (xs, ys, []) ->
+          return (foldl (flip ($)) defaultOpts1 xs, ys)
+      (_, _, errs) ->
+          fail (concat errs ++ usageInfo header optsDescr)
+  where
+    header          = "Usage: show_words [OPTION..] columnNames.."
 

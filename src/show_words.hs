@@ -5,5 +5,5 @@ module Main
 import ShowWords
 
 main :: IO ()
-main                = showWords
+main                = showWords0
 

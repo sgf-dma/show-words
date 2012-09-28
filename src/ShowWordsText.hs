@@ -6,6 +6,9 @@ module ShowWordsText
     , splitToPhrases
     , reorderColumns
     , reorderLines
+    , splitToColumns1
+    , splitToPhrases1
+    , reorderLines1
     )
   where
 
@@ -13,11 +16,14 @@ import Data.Char (isSpace)
 import qualified Data.Foldable as F
 -- FIXME: Move random code to ShowWords?
 import System.Random (getStdGen, newStdGen)
+import Control.Monad.Reader
 
 import SgfList
 import SgfOrderedLine
+import ShowWordsOptions
 
 
+-- FIXME: WordSeps is deprecated.
 -- Input (and output) separators.
 data WordsSeps      = WordsSeps
                         { columnSep    :: String -- Column separator.
@@ -136,4 +142,43 @@ reorderLines lineOrder xl@(x : xs)
                                 _ <- newStdGen
                                 return (x : shuffleList gen xs)
   | otherwise               = return xl
+
+
+
+
+splitToColumns1 :: (Monad m) => [String] -> ReaderT Config m [[String]]
+splitToColumns1 xs  = do
+    Config {confReferenceSep = refSp, confColumnSep = colSp} <- ask
+    return
+        . map getZipList'
+        . fst
+        . flip runBState [refSp, colSp]
+        . foldrMerge splitTextLine
+        $ xs
+
+-- (WordsSeps {phraseSep = phrSp})
+-- FIXME: Move [] case to lower level? E.g. in BState ? As in splitToColumns?
+-- FIXME: Continuation of phrases with backslash?
+splitToPhrases1 :: (Monad m, Functor f) =>
+                   [f String] -> ReaderT Config m [f [String]]
+splitToPhrases1 []          = return []
+splitToPhrases1 (ref : xs)  = do
+    Config {confPhraseSep = phrSp} <- ask
+    let split = filter (/= phrSp) . splitBy phrSp
+    return (fmap (: []) ref : map (fmap split) xs)
+    
+
+-- FIXME: Abstract to transformer of monad m? And move all random to
+-- ShowWords?
+-- FIXME: Rewrite code?
+reorderLines1 :: [a] -> ReaderT Config IO [a]
+reorderLines1 []     = return []
+reorderLines1 xl@(x : xs)   = do
+    Config {confLineOrder = lineOrder} <- ask
+    if lineOrder == "shuffle"
+      then do
+            gen <- lift getStdGen
+            _ <- lift newStdGen
+            return (x : shuffleList gen xs)
+      else  return xl
 

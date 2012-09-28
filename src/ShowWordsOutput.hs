@@ -5,6 +5,7 @@ module ShowWordsOutput
     , checkAnswer
     , putLine
     , putPhrases
+    , putPhrases1
     )
   where
 
@@ -13,9 +14,11 @@ import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
+import Control.Monad.Reader
 
 import SgfList
 import SgfOrderedLine
+import ShowWordsOptions
 import ShowWordsText
 
 
@@ -86,4 +89,23 @@ putPhrases f
                         putStrF "\n"
                         mapM_ (\x -> putLine f colSp phrSp x >> putStrF "\n")
                               xs
+
+
+
+
+-- New interface..
+--
+-- FIXME: Is it normal, that transformer is fully specified?
+putPhrases1 :: [Line [String]] -> ReaderT Config IO ()
+putPhrases1 []          = return ()
+putPhrases1 (ref : xs)  = do
+    Config
+        { confMode = f
+        , confReferenceSep = refSp
+        , confColumnSep = colSp
+        , confPhraseSep = phrSp
+        } <- ask
+    lift (putLine return refSp "" ref)
+    lift (putStrF "\n")
+    lift (mapM_ (\x -> putLine f colSp phrSp x >> putStrF "\n") xs)
 
