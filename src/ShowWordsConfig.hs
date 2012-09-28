@@ -1,18 +1,8 @@
 
-module ShowWordsOptions
-    ( Options (..)
-    , Config (..)
+module ShowWordsConfig
+    (Config (..)
     )
   where
-
-data Options        = Options
-                        { optMode         :: String -> IO String
-                        , optLineOrder    :: String
-                        , optFile         :: FilePath
-                        , optColumnSep    :: String
-                        , optPhraseSep    :: String
-                        , optReferenceSep :: String
-                        }
 
 data Config        = Config
                         { confMode          :: String -> IO String

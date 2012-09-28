@@ -5,7 +5,6 @@ module ShowWordsOutput
     , checkAnswer
     , putLine
     , putPhrases
-    , putPhrases1
     )
   where
 
@@ -18,7 +17,7 @@ import Control.Monad.Reader
 
 import SgfList
 import SgfOrderedLine
-import ShowWordsOptions
+import ShowWordsConfig
 import ShowWordsText
 
 
@@ -75,37 +74,17 @@ putLine f colSp phrSp
 
 -- Output Line-s. First Line is treated as reference (heading) and no action
 -- is executed on it and referenceSep is used for joining.
-putPhrases :: (String -> IO String) -> WordsSeps -> [Line [String]] -> IO ()
-putPhrases _ _ []       = return ()
-putPhrases f
-         (WordsSeps
-            { columnSep = colSp
-            , phraseSep = phrSp
-            , referenceSep = refSp
-            }
-         )
-         (ref : xs) = do
-                        putLine return refSp "" ref
-                        putStrF "\n"
-                        mapM_ (\x -> putLine f colSp phrSp x >> putStrF "\n")
-                              xs
-
-
-
-
--- New interface..
---
--- FIXME: Is it normal, that transformer is fully specified?
-putPhrases1 :: [Line [String]] -> ReaderT Config IO ()
-putPhrases1 []          = return ()
-putPhrases1 (ref : xs)  = do
+putPhrases :: [Line [String]] -> ReaderT Config IO ()
+putPhrases []           = return ()
+putPhrases (ref : xs)   = do
     Config
         { confMode = f
         , confReferenceSep = refSp
         , confColumnSep = colSp
         , confPhraseSep = phrSp
         } <- ask
-    lift (putLine return refSp "" ref)
-    lift (putStrF "\n")
-    lift (mapM_ (\x -> putLine f colSp phrSp x >> putStrF "\n") xs)
+    lift $ do
+        putLine return refSp "" ref
+        putStrF "\n"
+        mapM_ (\x -> putLine f colSp phrSp x >> putStrF "\n") xs
 

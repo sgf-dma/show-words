@@ -1,14 +1,10 @@
 
 module ShowWordsText
-    ( WordsSeps (..)
-    , dropSpaces
+    ( dropSpaces
     , splitToColumns
     , splitToPhrases
     , reorderColumns
     , reorderLines
-    , splitToColumns1
-    , splitToPhrases1
-    , reorderLines1
     )
   where
 
@@ -20,17 +16,8 @@ import Control.Monad.Reader
 
 import SgfList
 import SgfOrderedLine
-import ShowWordsOptions
+import ShowWordsConfig
 
-
--- FIXME: WordSeps is deprecated.
--- Input (and output) separators.
-data WordsSeps      = WordsSeps
-                        { columnSep    :: String -- Column separator.
-                        , phraseSep    :: String -- Phrase separator.
-                        , referenceSep :: String -- Heading separaror.
-                        }
-  deriving (Show)
 
 -- Drop leading and trailing spaces.
 dropSpaces :: String -> String
@@ -88,25 +75,29 @@ splitTextLine x     = BState (f x) >>= \ ~(xs, p) -> return (ZipList' xs, p)
 -- reference (heading) and referenceSep is used to split it. Other are split
 -- by columnSep. If at least one column of a line continues on next line,
 -- lines will be merged column by column.
-splitToColumns :: WordsSeps -> [String] -> [[String]]
-splitToColumns (WordsSeps {referenceSep = refSp, columnSep = colSp})
-                    = map getZipList'
-                        . fst
-                        . flip runBState [refSp, colSp]
-                        . foldrMerge splitTextLine
+splitToColumns :: (Monad m) => [String] -> ReaderT Config m [[String]]
+splitToColumns xs   = do
+    Config {confReferenceSep = refSp, confColumnSep = colSp} <- ask
+    let split = map getZipList'
+                    . fst
+                    . flip runBState [refSp, colSp]
+                    . foldrMerge splitTextLine
+    return (split xs)
 
+-- FIXME: Continue phrases with backslash as well?
 -- Split columns (strings) into phrases. First line is treated as reference,
 -- and will not be split into phrases. If this function called after
 -- splitToColumns, functor f will be list, if after reorderColumns it'll be
 -- Line.
-splitToPhrases :: (Functor f) => WordsSeps -> [f String] -> [f [String]]
-splitToPhrases _ []     = []
-splitToPhrases (WordsSeps {phraseSep = phrSp}) (ref : xs)
-                        = fmap (: []) ref : map (fmap split) xs
-  where
-    split :: String -> [String]
-    split               = filter (/= phrSp) . splitBy phrSp
+splitToPhrases :: (Monad m, Functor f) =>
+                  [f String] -> ReaderT Config m [f [String]]
+splitToPhrases []           = return []
+splitToPhrases (ref : xs)   = do
+    Config {confPhraseSep = phrSp} <- ask
+    let split = filter (/= phrSp) . splitBy phrSp
+    return (fmap (: []) ref : map (fmap split) xs)
 
+-- FIXME: Use Config? Move eq and colNames to Config?
 -- Convert list of lines (list of lists) into list of Line-s. This will
 -- reorder elements in lines according to supplied new column order. First
 -- line treated as reference (heading) and should contain column names in
@@ -123,6 +114,8 @@ reorderColumns eq colNames xs@(refs : _)
     makeRef :: [Line a] -> [Line a]
     makeRef (refl : ys) = orderList [] (F.foldr (:) [] refl) : ys
 
+-- FIXME: Abstract to transformer of monad m? And move all random to
+-- ShowWords?
 -- FIXME: For v3. Add support for cards. Oh.. yeah, this is not going to be
 -- easy.  I should add reorderCards. reorderLines should reorder lines in one
 -- Card (or all). This also may be implemented more generally: add support for
@@ -134,51 +127,14 @@ reorderColumns eq colNames xs@(refs : _)
 -- simply shuffle lines in group with the same error rate, and output groups
 -- in error rate decreasing order.
 -- Shuffle (or not) lines.
-reorderLines :: String -> [a] -> IO [a]
-reorderLines _         []   = return []
-reorderLines lineOrder xl@(x : xs)
-  | lineOrder == "shuffle"  = do
-                                gen <- getStdGen
-                                _ <- newStdGen
-                                return (x : shuffleList gen xs)
-  | otherwise               = return xl
-
-
-
-
-splitToColumns1 :: (Monad m) => [String] -> ReaderT Config m [[String]]
-splitToColumns1 xs  = do
-    Config {confReferenceSep = refSp, confColumnSep = colSp} <- ask
-    return
-        . map getZipList'
-        . fst
-        . flip runBState [refSp, colSp]
-        . foldrMerge splitTextLine
-        $ xs
-
--- (WordsSeps {phraseSep = phrSp})
--- FIXME: Move [] case to lower level? E.g. in BState ? As in splitToColumns?
--- FIXME: Continuation of phrases with backslash?
-splitToPhrases1 :: (Monad m, Functor f) =>
-                   [f String] -> ReaderT Config m [f [String]]
-splitToPhrases1 []          = return []
-splitToPhrases1 (ref : xs)  = do
-    Config {confPhraseSep = phrSp} <- ask
-    let split = filter (/= phrSp) . splitBy phrSp
-    return (fmap (: []) ref : map (fmap split) xs)
-    
-
--- FIXME: Abstract to transformer of monad m? And move all random to
--- ShowWords?
--- FIXME: Rewrite code?
-reorderLines1 :: [a] -> ReaderT Config IO [a]
-reorderLines1 []     = return []
-reorderLines1 xl@(x : xs)   = do
+reorderLines :: [a] -> ReaderT Config IO [a]
+reorderLines []         = return []
+reorderLines (x : xs)   = do
     Config {confLineOrder = lineOrder} <- ask
     if lineOrder == "shuffle"
       then do
             gen <- lift getStdGen
             _ <- lift newStdGen
             return (x : shuffleList gen xs)
-      else  return xl
+      else  return (x : xs)
 
