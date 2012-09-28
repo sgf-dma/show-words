@@ -88,33 +88,58 @@ setMode xs
   | otherwise       = return
 
 data Options        = Options
-                        { optMode      :: String -> IO String
-                        , optLineOrder :: String
-                        , optFile      :: FilePath
+                        { optMode         :: String -> IO String
+                        , optLineOrder    :: String
+                        , optFile         :: FilePath
+                        , optColumnSep    :: String
+                        , optPhraseSep    :: String
+                        , optReferenceSep :: String
                         }
 
 defaultOpts :: Options
 defaultOpts         = Options
-                        { optMode       = setMode "default"
-                        , optLineOrder  = "default"
-                        , optFile       = "./words.txt"
+                        { optMode         = setMode "default"
+                        , optLineOrder    = "default"
+                        , optFile         = "./words.txt"
+                        , optColumnSep    = " : "
+                        , optPhraseSep    = "; "
+                        , optReferenceSep = " - "
                         }
 
 optsDescr :: [OptDescr (Options -> Options)]
 optsDescr = 
     [ Option    ['m']
                 ["mode"]
-                (ReqArg (\xs opt -> opt {optMode = setMode xs}) "MODE")
-                ("Set operation mode to MODE ('reorder' by default).\n"
-                    ++ "Valid values are 'print', 'check', 'reorder'.")
+                (ReqArg (\mode opt -> opt {optMode = setMode mode}) "MODE")
+                ("Set operation mode to MODE (default 'reorder').\n"
+                    ++ "Valid values are 'print', 'check', 'reorder'."
+                )
     , Option    ['s']
                 ["shuffle"]
                 (NoArg (\opt -> opt {optLineOrder = "shuffle"}))
-                "Shuffle lines."
+                "Shuffle lines (default disabled)."
     , Option    ['f']
                 ["file"]
-                (ReqArg (\xs opt -> opt {optFile = xs}) "FILE")
-                "Read words from FILE (words.txt by default)."
+                (ReqArg (\file opt -> opt {optFile = file}) "FILE")
+                "Read words from FILE (default 'words.txt')."
+    , Option    ['c']
+                ["column-sep"]
+                (ReqArg (\colSp opt -> opt {optColumnSep = colSp})
+                        "COLUMN_SEP"
+                )
+                "Column separator (default \" : \")."
+    , Option    ['p']
+                ["phrase-sep"]
+                (ReqArg (\phrSp opt -> opt {optPhraseSep = phrSp})
+                        "PHRASE_SEP"
+                )
+                "Phrase separator (default \"; \")."
+    , Option    ['r']
+                ["reference-sep"]
+                (ReqArg (\refSp opt -> opt {optReferenceSep = refSp})
+                        "REFERENCE_SEP"
+                )
+                "Reference (heading) separator (default \" - \")."
     ]
 
 -- Parse command-line arguments.
@@ -132,17 +157,25 @@ parseArgs argv      = case getOpt Permute optsDescr argv of
 -- difference when i call it. But such sequence allows to use new
 -- splitToColumns instead of splitToPhrases.
 -- Show words (main function).
-showWords :: WordsSeps -> IO ()
-showWords wSps = do
+showWords :: IO ()
+showWords = do
     argv <- getArgs
     (Options
           { optMode = mode
           , optLineOrder = lineOrder
-          , optFile = file}
+          , optFile = file
+          , optColumnSep = colSp
+          , optPhraseSep = phrSp
+          , optReferenceSep = refSp}
       , colNames) <- parseArgs argv
     contents <- readFile' file
     hSetEcho stdin False
     -- FIXME: Applicative (->) with wSps ?
+    let wSps = WordsSeps
+                { columnSep = colSp
+                , phraseSep = phrSp
+                , referenceSep = refSp
+                }
     xs <- reorderLines lineOrder
             . map (fmap (map dropSpaces))
             . splitToPhrases wSps
