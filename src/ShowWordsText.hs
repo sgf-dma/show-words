@@ -11,8 +11,8 @@ module ShowWordsText
 
 import Data.Char (isSpace)
 import qualified Data.Foldable as F
+-- FIXME: Move random code to ShowWords?
 import System.Random (getStdGen, newStdGen)
-import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 
 import SgfList
 import SgfOrderedLine

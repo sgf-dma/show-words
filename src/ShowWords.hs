@@ -11,7 +11,6 @@ import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
 import Control.Applicative      -- For Applicative ((->) a), <$> and other.
 
-import SgfOrderedLine
 import ShowWordsText
 import ShowWordsOutput
 
@@ -122,7 +121,7 @@ optsDescr =
 parseArgs :: [String] -> IO (Options, [String])
 parseArgs argv      = case getOpt Permute optsDescr argv of
                         (xs, ys, []) ->
-                            return (foldl (\z f -> f z) defaultOpts xs, ys)
+                            return (foldl (flip ($)) defaultOpts xs, ys)
                         (_, _, errs) ->
                             fail (concat errs ++ usageInfo header optsDescr)
   where header      = "Usage: show_words [OPTION...] columnNames.."
@@ -145,13 +144,13 @@ showWords wSps = do
     hSetEcho stdin False
     -- FIXME: Applicative (->) with wSps ?
     xs <- reorderLines lineOrder
-            $ map (fmap (map dropSpaces))
-            $ splitToPhrases wSps
-            $ reorderColumns refEq colNames
-            $ splitToColumns wSps
-            $ lines contents
-    --putPhrases mode wSps xs
-    showWords3 mode wSps xs
+            . map (fmap (map dropSpaces))
+            . splitToPhrases wSps
+            . reorderColumns refEq colNames
+            . splitToColumns wSps
+            . lines
+            $ contents
+    putPhrases mode wSps xs
     putStrF "Bye!\n"
   where
     -- Equality test for reference columns.

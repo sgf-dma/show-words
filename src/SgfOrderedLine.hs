@@ -21,6 +21,7 @@ import Control.Applicative
 
 import SgfList
 
+-- FIXME: Tests?
 -- FIXME: With inifity index list orderList will hang on any attempt to
 -- evaluate "other" elements. Though, this may work in some cases. E.g. with
 -- (<*>), if f a contains empty "other" part, it may work. For this to work i
