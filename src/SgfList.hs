@@ -282,6 +282,7 @@ zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
 zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 
+-- FIXME: Rename to zipMap.
 -- "Zippy apply" list of function to some traversable datatype.
 zipApp :: T.Traversable t => [a -> b] -> t a -> t b
 zipApp fs           = fst . flip runState fs . T.mapM g
