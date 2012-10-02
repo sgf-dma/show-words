@@ -71,15 +71,14 @@ putLine f colSp phrSp
     f' []           = return []
     f' xs           = f xs
 
--- FIXME: v2.1. Another mode, where all phrases outputed at once and user
--- answer checked against them _without_ order.
+-- FIXME: putRef ?
 -- Output Line-s. First Line is treated as reference (heading) and no action
 -- is executed on it and referenceSep is used for joining.
 putPhrases :: [Line [String]] -> ReaderT Config IO ()
 putPhrases []           = return ()
 putPhrases (ref : xs)   = do
     Config
-        { confMode = f
+        { confAction = f
         , confReferenceSep = refSp
         , confColumnSep = colSp
         , confPhraseSep = phrSp

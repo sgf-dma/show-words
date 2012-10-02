@@ -9,7 +9,7 @@ import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
-import System.Random (getStdGen, newStdGen)
+import System.Random (getStdGen)
 import Control.Monad.Reader
 
 import SgfList (listEq)
@@ -17,8 +17,11 @@ import ShowWordsConfig
 import ShowWordsText
 import ShowWordsOutput
 
--- FIXME: May be revert type Column? But this time in the form of [String]?
--- FIXME: Add statistic? WriterT w IO, is it not?
+-- FIXME: v2.1. Another mode, where all phrases outputed at once and user
+-- answer checked against them _without_ order.
+-- FIXME: v2.2. Add statistic? WriterT w IO, is it not?
+-- FIXME: Move defaultConf to ShowWordsConfig? But setAction is not available
+-- there..
 -- FIXME: Mark place, where column match (literal or not) performed.
 -- Also, mark place, where separator matches preformed, as well as answer
 -- matches.
@@ -28,13 +31,12 @@ import ShowWordsOutput
 --      - column by line;
 --      - phrase by line;
 -- FIXME: Empty answer == skip answer, but do not check.
--- FIXME: Tests.
--- FIXME: I disabled prefix match for column names during testing.
+-- FIXME: Quickcheck tests,
+-- FIXME: Prefix match for column names?
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
--- with user..
--- FIXME: Not literal match for separators?
+-- with user, so this is only possible in "reorder" mode.
 -- FIXME: Disabled echo for "check" mode is not convenient. Though, if it is
--- enabled, newline will break all output.
+-- enabled, newline will break output formatting.
 
 
 -- Usage: ./show_words [options..] [column_names]
@@ -84,59 +86,75 @@ import ShowWordsOutput
 
 defaultConf :: Config
 defaultConf         = Config
-                        { confMode         = setMode "default"
+                        { confAction       = return
                         , confInputFile    = "./words.txt"
                         , confReferenceSep = " - "
                         , confColumnSep    = " : "
                         , confPhraseSep    = "; "
                         , confColumnEq     = (==)
                         , confColumnNames  = []
-                        , confLineOrder    = "default"
+                        , confLineOrder    = "disabled"
                         }
 
--- FIXME: Rename to setAction. And rename corresponding cofing.
--- Set appropriate operation mode (how to put phrases) from string.
-setMode :: String -> String -> IO String
-setMode xs
+-- Set action, which will be executed before every phrase.
+setAction :: String -> String -> IO String
+setAction xs
   | xs == "check"   = checkAnswer
-  | xs == "print"   = waitKey
---  | xs == "reorder" = return
+  | xs == "wait"    = waitKey
   | otherwise       = return
 
 optsDescr :: [OptDescr (Config -> Config)]
 optsDescr = 
-    [ Option    ['m']
-                ["mode"]
-                (ReqArg (\mode conf -> conf {confMode = setMode mode}) "MODE")
-                ("Set operation mode to MODE (default 'reorder').\n"
-                    ++ "Valid values are 'print', 'check', 'reorder'."
+    [ Option    ['a']
+                ["action"]
+                (ReqArg (\mode conf -> conf {confAction = setAction mode})
+                        "ACTION"
+                )
+                ("Set action to execute before every phrase to ACTION"
+                    ++ "(default is no action). "
+                    ++ "Valid values are 'wait' and 'check'."
                 )
     , Option    ['f']
                 ["file"]
                 (ReqArg (\file conf -> conf {confInputFile = file}) "FILE")
-                "Read words from FILE (default 'words.txt')."
+                ("Read words from FILE (default \""
+                    ++ confInputFile defaultConf
+                    ++ "\")."
+                )
     , Option    ['r']
                 ["reference-sep"]
                 (ReqArg (\refSp conf -> conf {confReferenceSep = refSp})
                         "REFERENCE_SEP"
                 )
-                "Reference (heading) separator (default \" - \")."
+                ("Reference (heading) separator (default \""
+                    ++ confReferenceSep defaultConf
+                    ++ "\")."
+                )
     , Option    ['c']
                 ["column-sep"]
                 (ReqArg (\colSp conf -> conf {confColumnSep = colSp})
                         "COLUMN_SEP"
                 )
-                "Column separator (default \" : \")."
+                ("Column separator (default \""
+                    ++ confColumnSep defaultConf
+                    ++ "\")."
+                )
     , Option    ['p']
                 ["phrase-sep"]
                 (ReqArg (\phrSp conf -> conf {confPhraseSep = phrSp})
                         "PHRASE_SEP"
                 )
-                "Phrase separator (default \"; \")."
+                ("Phrase separator (default \""
+                    ++ confPhraseSep defaultConf
+                    ++ "\")."
+                )
     , Option    ['s']
                 ["shuffle"]
                 (NoArg (\conf -> conf {confLineOrder = "shuffle"}))
-                "Shuffle lines (default disabled)."
+                ("Shuffle lines (default \""
+                    ++ confLineOrder defaultConf
+                    ++ "\")."
+                )
     ]
 
 -- Parse command-line arguments.
@@ -149,7 +167,6 @@ parseArgs           = do
   where
     header          = "Usage: show_words [OPTION..] columnNames.."
 
--- FIXME: Move refEq to config?
 showWords0 :: IO ()
 showWords0 = do
     (conf, colNames) <- parseArgs
@@ -164,13 +181,7 @@ showWords          = do
             $ contents
     colNames <- getColNames
     colEq <- getColEq
-    -- FIXME: Am i really need both StdGens?
-    {-
-    Config {confColumnNames = colNames, confColumnEq = colEq} <- ask
-    let colNames' = map (: []) colNames
-        colEq' xs ys    = listEq colEq (map dropSpaces xs) (map dropSpaces ys)-}
     gen <- lift getStdGen
-    _ <- lift newStdGen
     xs' <- reorderLines gen
             . reorderColumns colEq colNames
             $ xs
@@ -185,12 +196,15 @@ showWords          = do
         Config {confInputFile = file} <- ask
         contents <- lift (B.readFile file)
         return . decode . B.unpack $ contents
-    -- Wrap colNames from Config into corresponding type.
+    -- Wrap column names into list, which is required, if i use reorderColumns
+    -- after splitToPhrases.
     getColNames :: ReaderT Config IO [[String]]
     getColNames     = do
         Config {confColumnNames = colNames} <- ask
         return $ map (: []) colNames
-    -- Lift colEq from Config into corresponding type.
+    -- "Lift" column's equality function to equality for lists, which is
+    -- required, if i use reorderColumns after splitToPhrases (and column
+    -- names are wrapped into list by getColNames).
     getColEq :: ReaderT Config IO ([String] -> [String] -> Bool)
     getColEq        = do
         Config {confColumnEq = eq} <- ask

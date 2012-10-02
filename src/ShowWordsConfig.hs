@@ -5,7 +5,7 @@ module ShowWordsConfig
   where
 
 data Config        = Config
-                        { confMode          :: String -> IO String
+                        { confAction        :: String -> IO String
                         , confInputFile     :: FilePath
                         , confReferenceSep  :: String
                         , confColumnSep     :: String

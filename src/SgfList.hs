@@ -323,13 +323,15 @@ zipMap fs           = fst . flip runState fs . T.mapM g
 -- applied to this function.
 zipFoldM :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
 zipFoldM fs xs      = do
-                        (y, fs) <- runStateT (zipFoldMT' xs) fs
+                        (y, fs) <- runStateT (zipFoldrMT xs) fs
                         case fs of
                           [] -> return y
                           _  -> mzero
 
-zipFoldMT :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
-zipFoldMT           = foldlM (\z -> StateT . f z) mempty
+-- I need foldl here, because other zipFoldMT will not work, when either of
+-- lists is infinity.
+zipFoldlMT :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
+zipFoldlMT          = foldlM (\z -> StateT . f z) mempty
   where
     --f :: (MonadPlus m, Monoid b) =>
     --     a -> b -> [a -> m b] -> m (b, [a -> m b])
@@ -338,17 +340,16 @@ zipFoldMT           = foldlM (\z -> StateT . f z) mempty
                         y <- f x
                         return (y `mappend` z, fs)
 
--- I need foldl here, because other zipFoldMT will not work, when either of
--- lists is infinity.  Then, i assume, that (y `mappend` z) works faster, than
--- (z `mappend` y), where z is "long" monoid (e.g. this is true for (++),
--- which is mappend for list).  And i don't want to mappend elements in
--- reverse order (which is what happen, if i use (y `mappend` z) in foldl,
--- where z is fold accumulator).  So, i use function composition to sequence
--- monoids in correct (foldr's) order and then just apply resulting function
--- to neutral monoid - mempty.  See "Using Difference Lists" from "Learn You a
+-- I assume, that (y `mappend` z) works faster, than (z `mappend` y), where z
+-- is "long" monoid (e.g. this is true for (++), which is mappend for list).
+-- And here i don't want to mappend elements in reverse order (as in
+-- zipFoldlMT), which is what happen, if i use (y `mappend` z) in foldl, where
+-- z is fold accumulator.  So, i use function composition to sequence monoids
+-- in correct (foldr's) order and then just apply resulting function to
+-- neutral monoid - mempty.  See "Using Difference Lists" from "Learn You a
 -- Haskell for Great Good" for details.
-zipFoldMT' :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
-zipFoldMT' xs       = do
+zipFoldrMT :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
+zipFoldrMT xs       = do
                         g <- foldlM (\z -> StateT . f z) (mempty `mappend`) xs
                         return (g mempty)
   where
