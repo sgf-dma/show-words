@@ -12,7 +12,7 @@ module SgfOrderedLine
     )
   where
 
--- FIXME: Do not export Line data contructor!
+-- FIXME: Export some function line instead of Line data constructor?
 
 import Data.Monoid
 import qualified Data.Foldable as F

@@ -43,7 +43,6 @@ checkAnswer p       = do
 
 
 -- FIXME: Tests?
--- FIXME: Reader? Or pass column separator using ReaderT transformer.
 
 -- Inline separators by applying function g to every element, except first.
 inlineSeps :: T.Traversable t => (a -> a) -> t a -> t a
@@ -71,7 +70,6 @@ putLine f colSp phrSp
     f' []           = return []
     f' xs           = f xs
 
--- FIXME: putRef ?
 -- Output Line-s. First Line is treated as reference (heading) and no action
 -- is executed on it and referenceSep is used for joining.
 putPhrases :: [Line [String]] -> ReaderT Config IO ()

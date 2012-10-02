@@ -167,6 +167,7 @@ parseArgs           = do
   where
     header          = "Usage: show_words [OPTION..] columnNames.."
 
+-- FIXME: Rename this bootstrap function?
 showWords0 :: IO ()
 showWords0 = do
     (conf, colNames) <- parseArgs
@@ -198,14 +199,14 @@ showWords          = do
         return . decode . B.unpack $ contents
     -- Wrap column names into list, which is required, if i use reorderColumns
     -- after splitToPhrases.
-    getColNames :: ReaderT Config IO [[String]]
+    getColNames :: (Monad m) => ReaderT Config m [[String]]
     getColNames     = do
         Config {confColumnNames = colNames} <- ask
         return $ map (: []) colNames
     -- "Lift" column's equality function to equality for lists, which is
     -- required, if i use reorderColumns after splitToPhrases (and column
     -- names are wrapped into list by getColNames).
-    getColEq :: ReaderT Config IO ([String] -> [String] -> Bool)
+    getColEq :: (Monad m) => ReaderT Config m ([String] -> [String] -> Bool)
     getColEq        = do
         Config {confColumnEq = eq} <- ask
         return $ \xs ys ->

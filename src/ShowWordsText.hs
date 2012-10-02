@@ -28,7 +28,7 @@ dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 -- FIXME: I'm not sure, whether i should remove all trailing backslashes every
 -- time or only last one and only if it is unescaped. After all, only the last
 -- unescaped backslash continues line, but others are just characters. On the
--- other hand, they're almost ever a garbage.
+-- other hand, they're almost ever just a garbage.
 isContinued :: String -> (String, Bool)
 isContinued         = foldr f ([], False)
   where
@@ -96,7 +96,6 @@ splitToPhrases (ref : xs)   = do
     let split = filter (/= phrSp) . splitBy phrSp
     return (fmap (: []) ref : map (fmap split) xs)
 
--- FIXME: Use Config? Move eq and colNames to Config?
 -- Convert list of lines (list of lists) into list of Line-s. This will
 -- reorder elements in lines according to supplied new column order. First
 -- line treated as reference (heading) and should contain column names in
@@ -113,20 +112,15 @@ reorderColumns eq colNames xs@(refs : _)
     makeRef :: [Line a] -> [Line a]
     makeRef (refl : ys) = orderList [] (F.foldr (:) [] refl) : ys
 
--- FIXME: Abstract to transformer of monad m? And move all random to
--- ShowWords?
--- FIXME: For v3. Add support for cards. Oh.. yeah, this is not going to be
--- easy.  I should add reorderCards. reorderLines should reorder lines in one
--- Card (or all). This also may be implemented more generally: add support for
--- tag column, which have arbitrary number of tags. And define operations with
--- them.
+-- FIXME: For v3. Add support for tag column, which have arbitrary number of
+-- tags. And define operations with them.
 -- FIXME: Rename to "shuffleLines" and remove order argument?
 -- FIXME: For v2.1. Shuffle lines according to statistics. Make words with
 -- more mistakes having more chances to appear at the beginning. Or i can
 -- simply shuffle lines in group with the same error rate, and output groups
 -- in error rate decreasing order.
 -- Shuffle (or not) lines.
-reorderLines :: RandomGen g => g -> [a] -> ReaderT Config IO [a]
+reorderLines :: (RandomGen g, Monad m) => g -> [a] -> ReaderT Config m [a]
 reorderLines gen []         = return []
 reorderLines gen (x : xs)   = do
     Config {confLineOrder = lineOrder} <- ask
