@@ -1,97 +1,116 @@
+{-# LANGUAGE TupleSections #-}
 
+import Data.Maybe
 import Data.Monoid
 import Control.Monad
 import Control.Monad.State
 import SgfList
 
-{-
-maybeFoldMap :: (Monoid b) => [a -> b] -> [a] -> Maybe b
-maybeFoldMap fs xs  =
-    let (y, fs') = runBState (foldrM (\x -> BState . f x) (Just mempty) xs) fs
-    in  case fs' of
-          [] -> y
-          _  -> Nothing
-  where
-    f _ _ []        = (Nothing, [])
-    f x mz (f : fs) = (mz >>= \z -> return (f x `mappend` z), fs)-}
 
--- Also hangs on infinity list due to final state calculation.
-maybeFoldMap :: (Monoid b) => [a -> b] -> [a] -> Maybe b
-maybeFoldMap fs xs  = case runBState (maybeFoldMapM xs) fs of
-                        (y, []) -> y
-                        (_, _)  -> Nothing
-
-maybeFoldMap' :: (Monoid b) => [a -> b] -> [a] -> Maybe b
-maybeFoldMap' fs xs  = fst $ runBState (maybeFoldMapM xs) fs
-
-maybeFoldMapM :: (Monoid b) => [a] -> BState [a -> b] (Maybe b)
-maybeFoldMapM       = foldrM (\x -> BState . f x) (Just mempty)
-  where
-    f _ _ []        = (Nothing, [])
-    f x mz (f : fs) = (mz >>= \z -> return (f x `mappend` z), fs)
-
--- FIXME: Use (reverse xs) instead. But in this case to preserve order i need
--- z `mappend` f x in maybeFoldMap1M?
-maybeFoldMap1 :: (Monoid b) => [a -> b] -> [a] -> Maybe b
-maybeFoldMap1 fs xs = do
-    (y, fs) <- runStateT (maybeFoldMap1M xs) (reverse fs)
-    case fs of
-      [] -> return y
-      _  -> Nothing
-
-maybeFoldMap1M :: (Monoid b) => [a] -> StateT [a -> b] Maybe b
-maybeFoldMap1M      = foldrM (\x -> StateT . f x) mempty
-  where
-    f _ _ []        = Nothing
-    f x z (f : fs)  = return (f x `mappend` z, fs)
-
-maybeFoldMap2 :: (Monoid b) => [a -> b] -> [a] -> Maybe b
-maybeFoldMap2 [] [] = Just mempty
-maybeFoldMap2 (f : fs) (x : xs)
-                    = liftM2 mappend (Just (f x)) (maybeFoldMap2 fs xs)
-maybeFoldMap2 _ _   = Nothing
-
-
-
-zipFold3 :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
-zipFold3 fs xs = do
-    (y, fs) <- runStateT (zipFold3M xs) (reverse fs)
-    case fs of
-      [] -> return y
-      _  -> mzero
-
-zipFold3M :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
-zipFold3M           = foldrM (\x -> StateT . f3M x) mempty
-
-f3M :: (MonadPlus m, Monoid b) => a -> b -> [a -> m b] -> m (b, [a -> m b])
-f3M _ _ []        = mzero
-f3M x z (f : fs)  = f x >>= \y -> return (y `mappend` z, fs)
-
--- Equivalent of zipFold3 with foldr instead of foldrM.
-zipFold3' :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
-zipFold3' fs xs = do
-    (y, fs) <- runStateT (zipFold3M' xs) (reverse fs)
-    case fs of
-      [] -> return y
-      _  -> mzero
-
-zipFold3M' :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
-zipFold3M'          = foldr (\x mtz -> mtz >>= \z -> StateT (f3M x z)) (return mempty)
-
-
-zipFold4 :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
-zipFold4 fs xs =
-    case runState (zipFold4M xs) (reverse fs) of
+-- Fold in monad (BState) with result (m b), where b is monoid and monad m is
+-- MonadPlus. Because i have access to (m b) value, i can fold it into single
+-- (m b) value using two ways: using mappend in monad m or using mplus.  Note,
+-- that i need m to be MonadPlus, because i need mzero (failed context), when
+-- lists have different length. Also, i need b to be Monoid, when two lists
+-- are empty (this is not fail (mzero) and i need some value to return).
+--
+-- Fold using mappend in monad m. Note, that this version will work only with
+-- infinity state list [a -> m b]. Infinity list [a] will not work, because i
+-- pattern match on final state, which is initial state of first monad in bind
+-- chain (hence, will never be computed).
+zipFoldM :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
+zipFoldM fs xs      =
+    case runBState (zipFoldBS xs) fs of
       (y, []) -> y
       _       -> mzero
 
-zipFold4M :: (MonadPlus m, Monoid b) => [a] -> State [a -> m b] (m b)
-zipFold4M       = foldrM (\x -> State . f4M x) (return mempty)
+zipFoldBS :: (MonadPlus m, Monoid b) => [a] -> BState [a -> m b] (m b)
+zipFoldBS           = foldrM (\x -> BState . fM x) (return mempty)
 
-f4M :: (MonadPlus m, Monoid b) => a -> m b -> [a -> m b] -> (m b, [a -> m b])
-f4M _ _  []        = (mzero, [])
-f4M x mz (f : fs)  = (f x `mplus` mz, fs)
+fM :: (MonadPlus m, Monoid b) => a -> m b -> [a -> m b] -> (m b, [a -> m b])
+fM _ _  []          = (mzero, [])
+fM x mz (f : fs)    = (f x >>= \y -> mz >>= \z -> return (y `mappend` z), fs)
 
-zipFold4M' :: (MonadPlus m, Monoid b) => [a] -> State [a -> m b] (m b)
-zipFold4M'           = foldr (\x msz -> msz >>= State . (f4M x)) (return (return mempty))
+-- Fold using mplus.  Note, that this version works incorrectly with default
+-- Maybe's MonadPlus instance:
+--
+--      > listEq zipFoldM1  [1..3] [1,4,3]
+--      True
+--
+-- but should be False.
+zipFoldM1 :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
+zipFoldM1 fs xs     =
+    case runBState (zipFoldBS1 xs) fs of
+      (y, []) -> y
+      _       -> mzero
 
+zipFoldBS1 :: (MonadPlus m, Monoid b) => [a] -> BState [a -> m b] (m b)
+zipFoldBS1          = foldrM (\x -> BState . fM1 x) (return mempty)
+
+fM1 :: (MonadPlus m, Monoid b) => a -> m b -> [a -> m b] -> (m b, [a -> m b])
+fM1 _ _  []         = (mzero, [])
+fM1 x mz (f : fs)   = (f x `mplus` mz, fs)
+
+-- Fold in monad transformer (StateT s m) with result b, where b is monoid and
+-- monad m is MonadPlus. Transformer does not allow to access (m b) value,
+-- hence, i can't use mplus for folding result into single (m b) value. So,
+-- i'll use mappend in transformer.
+--
+-- Note, that this version does not work with either infinity list. Infinity
+-- state list ([a -> m b]) will not work, because i need to reverse it (to
+-- preserve lists elements correspondence).  Infinity [a] list will not work,
+-- because State monad assignes initial state to first monad in bind chain,
+-- which with foldr corresponds to last element in [a] list. Hence, with
+-- infinity [a] list i can't compute _any_ state at all.
+zipFoldM2 :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
+zipFoldM2 fs xs     = do
+    (y, fs) <- runStateT (zipFoldST xs) (reverse fs)
+    case fs of
+      [] -> return y
+      _  -> mzero
+
+zipFoldST :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
+zipFoldST           = foldrM (\x -> StateT . f x) mempty
+
+f :: (MonadPlus m, Monoid b) => a -> b -> [a -> m b] -> m (b, [a -> m b])
+f _ _ []            = mzero
+f x z (f : fs)      = f x >>= \y -> return (y `mappend` z, fs)
+
+-- This is StateT version with foldl and, surprisingly, it works on _either_
+-- infinity list! This is because of mzero: foldl starts evaluation from the
+-- first monad in bind chain (it corresponds to first element in list [a]),
+-- and it has all information to compute it immediately (State monad passes
+-- initial state to first monad in the chain, remember?). Then, when at some
+-- point further due to empty state result becomes mzero, final result will
+-- always be mzero and final state is unkown (because mzero does not contain
+-- any value (normally, final state of StateT transformer is in monad m's
+-- result, remember?)).
+zipFoldM2' :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
+zipFoldM2' fs xs    = do
+    (y, fs) <- runStateT (zipFoldST' xs) fs
+    case fs of
+      [] -> return y
+      _  -> mzero
+
+zipFoldST' :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
+zipFoldST'          = foldlM (\z x -> StateT (f' x z)) mempty
+
+f' :: (MonadPlus m, Monoid b) => a -> b -> [a -> m b] -> m (b, [a -> m b])
+f' _ _ []           = mzero
+f' x z (f : fs)     = f x >>= \y -> return (z `mappend` y, fs)
+
+-- Non-monadic version. It works on either infinity list.
+zipFoldM3 :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
+zipFoldM3 [] []     = return mempty
+zipFoldM3 (f : fs) (x : xs)
+                    = liftM2 mappend (f x) (zipFoldM3 fs xs)
+zipFoldM3 _ _       = mzero
+
+
+listEq :: (Eq a) =>
+          ([a -> Maybe All] -> [a] -> Maybe All) -> [a] -> [a] -> Bool
+listEq f xs         = let xs' = map (\x -> Just . All . (x ==)) xs
+                      in  getAll . fromMaybe (All False) . f xs'
+
+test1 f xs          = let xs' = map (\x -> Just . (: []) . (x, )) xs
+                      in  f xs'
