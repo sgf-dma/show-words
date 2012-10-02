@@ -21,12 +21,15 @@ module SgfList
     , foldrMerge
     , concatSeq
     , zipWith'
-    , zipApp
+    , zipMap
+    , zipFoldM
+    , listEq
     , transp
     , shuffleList
     )
   where
 
+import Data.Maybe (fromMaybe)
 import Data.Monoid
 import qualified Data.Foldable as F
 import qualified Data.Traversable as T
@@ -282,16 +285,88 @@ zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
 zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 
--- FIXME: Rename to zipMap.
--- "Zippy apply" list of function to some traversable datatype.
-zipApp :: T.Traversable t => [a -> b] -> t a -> t b
-zipApp fs           = fst . flip runState fs . T.mapM g
+-- FIXME: Empty (or not long enough) list of functions is exception for
+-- zipMap. To properly fix this, i need a way for function g to somehow
+-- continue returning (m b) values without having (a -> b) function. In other
+-- words, it either need data constructor for type b (which is impossible) or
+-- b should be monoid (then it can use (return mempty)) or it may use last
+-- function (a -> b) for all remaining elements (which still will break, if [a
+-- -> b] is empty list). So, the only good solution is (Monoid b) constraint,
+-- but i'm not sure, that i want it. Other way is implementing monadic zipMap
+--
+--      zipMapM :: (T.Traversable t, Monad m, Monoid (m b)) =>
+--                 [a -> m b] -> t a -> m (t b)
+--
+-- Note, that (MonadPlus m) is not the right thing here, because mzero is
+-- failure, but not a neutral context.
+
+-- "Zippy apply (map)" list of function to some traversable datatype. If list
+-- of functions [a -> b] is empty or not long enough, this is error.
+zipMap :: (T.Traversable t) => [a -> b] -> t a -> t b
+zipMap fs           = fst . flip runState fs . T.mapM g
   where
     g x             = do
                         (f : fs) <- get
                         put fs
                         return (f x)
 
+-- Generic list Eq instance or "zippy monadic foldMap". List of monadic
+-- functions [a -> m b] is "zippy applied" to other list [a] and results are
+-- (right) folded in monad m into monoid b. If length of list of functions
+-- [a -> m b] and other list [a] are not equal, return failure context of
+-- monad m (mzero). If both have length zero, return mempty in monad m. Note,
+-- that there is no sense here in
+--      
+--      (F.Foldable t) => .. -> t a -> ..
+--
+-- because any foldable can be converted (foldMap-ed) into list, and then
+-- applied to this function.
+zipFoldM :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
+zipFoldM fs xs      = do
+                        (y, fs) <- runStateT (zipFoldMT' xs) fs
+                        case fs of
+                          [] -> return y
+                          _  -> mzero
+
+zipFoldMT :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
+zipFoldMT           = foldlM (\z -> StateT . f z) mempty
+  where
+    --f :: (MonadPlus m, Monoid b) =>
+    --     a -> b -> [a -> m b] -> m (b, [a -> m b])
+    f _ _ []        = mzero
+    f z x (f : fs)  = do
+                        y <- f x
+                        return (y `mappend` z, fs)
+
+-- I need foldl here, because other zipFoldMT will not work, when either of
+-- lists is infinity.  Then, i assume, that (y `mappend` z) works faster, than
+-- (z `mappend` y), where z is "long" monoid (e.g. this is true for (++),
+-- which is mappend for list).  And i don't want to mappend elements in
+-- reverse order (which is what happen, if i use (y `mappend` z) in foldl,
+-- where z is fold accumulator).  So, i use function composition to sequence
+-- monoids in correct (foldr's) order and then just apply resulting function
+-- to neutral monoid - mempty.  See "Using Difference Lists" from "Learn You a
+-- Haskell for Great Good" for details.
+zipFoldMT' :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
+zipFoldMT' xs       = do
+                        g <- foldlM (\z -> StateT . f z) (mempty `mappend`) xs
+                        return (g mempty)
+  where
+    --f :: (MonadPlus m, Monoid b) =>
+    --     a -> b -> [a -> m b] -> m (b, [a -> m b])
+    f _ _ []        = mzero
+    f z x (f : fs)  = do
+                        y <- f x
+                        return (z . (y `mappend`), fs)
+
+-- Eq instance for foldable datatype with some function eq supplied as
+-- equality for elements.
+listEq :: (a -> a -> Bool) -> [a] -> [a] -> Bool
+listEq eq xs        = let xs' = map (\x -> Just . All . (x `eq`)) xs
+                      in  getAll . fromMaybe (All False) . zipFoldM xs'
+
+test1 xs            = let xs' = map (\x -> Just . (: []) . (x, )) xs
+                      in  zipFoldM xs'
 
 -- Random.
 --

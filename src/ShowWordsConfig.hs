@@ -11,6 +11,7 @@ data Config        = Config
                         , confColumnSep     :: String
                         , confPhraseSep     :: String
                         , confColumnNames   :: [String]
+                        , confColumnEq      :: String -> String -> Bool
                         , confLineOrder     :: String
                         }
 

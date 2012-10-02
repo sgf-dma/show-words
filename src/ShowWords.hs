@@ -12,6 +12,7 @@ import System.Console.GetOpt    -- For getOpt.
 import System.Random (getStdGen, newStdGen)
 import Control.Monad.Reader
 
+import SgfList (listEq)
 import ShowWordsConfig
 import ShowWordsText
 import ShowWordsOutput
@@ -88,10 +89,12 @@ defaultConf         = Config
                         , confReferenceSep = " - "
                         , confColumnSep    = " : "
                         , confPhraseSep    = "; "
+                        , confColumnEq     = (==)
                         , confColumnNames  = []
                         , confLineOrder    = "default"
                         }
 
+-- FIXME: Rename to setAction. And rename corresponding cofing.
 -- Set appropriate operation mode (how to put phrases) from string.
 setMode :: String -> String -> IO String
 setMode xs
@@ -159,12 +162,17 @@ showWords          = do
             <=< splitToColumns
             <=< return . lines
             $ contents
-    Config {confColumnNames = colNames} <- ask
-    -- FIXME: Am i really need both?
+    colNames <- getColNames
+    colEq <- getColEq
+    -- FIXME: Am i really need both StdGens?
+    {-
+    Config {confColumnNames = colNames, confColumnEq = colEq} <- ask
+    let colNames' = map (: []) colNames
+        colEq' xs ys    = listEq colEq (map dropSpaces xs) (map dropSpaces ys)-}
     gen <- lift getStdGen
     _ <- lift newStdGen
     xs' <- reorderLines gen
-            . reorderColumns refEq (map (: []) colNames)
+            . reorderColumns colEq colNames
             $ xs
     lift (hSetEcho stdin False)
     putPhrases
@@ -177,9 +185,19 @@ showWords          = do
         Config {confInputFile = file} <- ask
         contents <- lift (B.readFile file)
         return . decode . B.unpack $ contents
-    -- Equality test for reference columns.
-    refEq :: [String] -> [String] -> Bool
-    refEq xs ys     = map dropSpaces xs == map dropSpaces ys
+    -- Wrap colNames from Config into corresponding type.
+    getColNames :: ReaderT Config IO [[String]]
+    getColNames     = do
+        Config {confColumnNames = colNames} <- ask
+        return $ map (: []) colNames
+    -- Lift colEq from Config into corresponding type.
+    getColEq :: ReaderT Config IO ([String] -> [String] -> Bool)
+    getColEq        = do
+        Config {confColumnEq = eq} <- ask
+        return $ \xs ys ->
+            let xs' = map dropSpaces xs
+                ys' = map dropSpaces ys
+            in  listEq eq xs' ys'
     -- Drop leading and trailing spaces in each phrase.
     dropSpaces' :: Functor f => [f [String]] -> [f [String]]
     dropSpaces'     = map (fmap (map dropSpaces))

@@ -19,7 +19,7 @@ import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Control.Applicative
 
-import SgfList
+import SgfList (Index, elemByInd, elemsByNotInds, zipMap)
 
 -- FIXME: Tests?
 -- FIXME: With inifity index list orderList will hang on any attempt to
@@ -89,8 +89,8 @@ mapOthers f         = mappend <$> onlyOrdered <*> fmap f . onlyOthers
 --mapOthers f xs      = Line (repeat id) (repeat f) <*> xs
 
 zipAppOrdered :: [a -> a] -> Line a -> Line a
-zipAppOrdered fs    = mappend <$> zipApp fs . onlyOrdered <*> onlyOthers
+zipAppOrdered fs    = mappend <$> zipMap fs . onlyOrdered <*> onlyOthers
 
 zipAppOthers :: [a -> a] -> Line a -> Line a
-zipAppOthers fs     = mappend <$> onlyOrdered <*> zipApp fs . onlyOthers
+zipAppOthers fs     = mappend <$> onlyOrdered <*> zipMap fs . onlyOthers
 

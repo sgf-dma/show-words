@@ -15,10 +15,9 @@ import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Control.Monad.Reader
 
-import SgfList
+import SgfList (zipMap)
 import SgfOrderedLine
 import ShowWordsConfig
-import ShowWordsText
 
 
 putStrF :: String -> IO ()
@@ -48,7 +47,7 @@ checkAnswer p       = do
 
 -- Inline separators by applying function g to every element, except first.
 inlineSeps :: T.Traversable t => (a -> a) -> t a -> t a
-inlineSeps g        = zipApp (id : repeat g)
+inlineSeps g        = zipMap (id : repeat g)
 
 -- Inline action by applying function g to every "ordered" element, except
 -- first. First element omitted, because it treated as a question.
@@ -72,6 +71,8 @@ putLine f colSp phrSp
     f' []           = return []
     f' xs           = f xs
 
+-- FIXME: v2.1. Another mode, where all phrases outputed at once and user
+-- answer checked against them _without_ order.
 -- Output Line-s. First Line is treated as reference (heading) and no action
 -- is executed on it and referenceSep is used for joining.
 putPhrases :: [Line [String]] -> ReaderT Config IO ()
