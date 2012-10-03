@@ -162,7 +162,7 @@ indsByElems eq ks   = fst . flip runBState (indBase, ks) . indsByElemsM eq
 indsByElemsM :: (a -> a -> Bool) -> [a] -> BState (Index, [a]) [Index]
 indsByElemsM eq     = foldrM (\x -> BState . f x) []
   where
-    f _ _  (s, [])  = fmap (s + 1, ) $ ([], [])  -- fixed point.
+    f _ _  (s, [])  = fmap (s + 1, ) ([], [])  -- fixed point.
     f x zs (s, ks)  = fmap (s + 1, ) $ allElems p ks s zs
       where p = any (x `eq`)
 
@@ -272,6 +272,7 @@ splitByM xs         = do
 foldrMerge :: (Monad m, Monoid b) => (a -> m (b, Bool)) -> [a] -> m [b]
 foldrMerge g        = foldrM (\x zs -> g x >>= return . f zs) []
   where
+    f :: (Monoid b) => [b] -> (b, Bool) -> [b]
     f [] (x', _)    = [x']
     f (z : zs) (x', p)
       | p           = x' `mappend` z : zs

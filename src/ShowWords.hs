@@ -235,18 +235,19 @@ showWords          = do
     getColNames :: (Monad m) => ReaderT Config m [[String]]
     getColNames     = do
         Config {confColumnNames = colNames} <- ask
-        return $ map (: []) colNames
+        return (map (: []) colNames)
     -- "Lift" column's equality function to equality for lists, which is
     -- required, if i use reorderColumns after splitToPhrases (and column
     -- names are wrapped into list by getColNames).
     getColEq :: (Monad m) => ReaderT Config m ([String] -> [String] -> Bool)
     getColEq        = do
         Config {confColumnEq = eq} <- ask
-        return $ \xs ys ->
-            let xs' = map dropSpaces xs
-                ys' = map dropSpaces ys
-            in  listEq eq xs' ys'
+        return (\xs ys -> listEq eq (normalize xs) (normalize ys))
+      where
+        normalize   = map dropSpaces
+    -- FIXME: Why not just use 'concat' instead of listEq ?
+    --  normalize   = concat . map dropSpaces
     -- Drop leading and trailing spaces in each phrase.
-    dropSpaces' :: Functor f => [f [String]] -> [f [String]]
+    dropSpaces' :: (Functor f) => [f [String]] -> [f [String]]
     dropSpaces'     = map (fmap (map dropSpaces))
 

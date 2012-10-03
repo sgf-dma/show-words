@@ -49,10 +49,10 @@ instance Applicative Line where
 --                    = Line (zipWith (flip ($)) xs fs) (zipWith (flip ($)) ys gs)
 -- For making list from Line.
 instance F.Foldable Line where
-    foldMap f (Line xs ys)  = (F.foldMap f xs) `mappend` (F.foldMap f ys)
+    foldMap f (Line xs ys)  = F.foldMap f xs `mappend` F.foldMap f ys
 -- For mapM.
 instance T.Traversable Line where
-    traverse f (Line xs ys) = Line <$> (T.traverse f xs) <*> (T.traverse f ys)
+    traverse f (Line xs ys) = Line <$> T.traverse f xs <*> T.traverse f ys
     --sequenceA (Line xs ys)  = Line <$> T.sequenceA xs <*> T.sequenceA ys
 -- For "scoping" functions on Line to either only "ordered" or only "other"
 -- elements. Use onlyOrdered and onlyOthers first to split Line into two, then

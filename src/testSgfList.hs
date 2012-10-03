@@ -1,11 +1,13 @@
 
 import SgfList
 
+main                = print runAll
+
 runAll :: [Bool]
-runAll              = runAllTests testIndex
-                        : runAllTests testSplitBy
-                        : runAllTests testSplitToColumns
-                        : []
+runAll              = [ runAllTests testIndex
+                      , runAllTests testSplitBy
+                      , runAllTests testSplitToColumns
+                      ]
 
 
 runAllTests :: (Eq a) => [(a, a)] -> Bool
@@ -236,8 +238,8 @@ lineCont            = foldl f False
 
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash) and remove trailing backslash sequence.
-strCont :: String -> (String, Bool)
-strCont xs          = foldr f ([], False) xs
+hasContinue :: String -> (String, Bool)
+hasContinue xs      = foldr f ([], False) xs
   where
     f :: Char -> (String, Bool) -> (String, Bool)
     f x ([], s)
@@ -265,12 +267,14 @@ splitToColumns ks   = map getZipList'
 splitTextLine :: String -> BState [String] (ZipList' String, Bool)
 splitTextLine x     = BState (f x) >>= \ ~(xs, p) -> return (ZipList' xs, p)
   where
-    --split :: String -> String -> ([String], Bool)
-    split k         = foldr (\(x, p) (zx, zp) -> (x : zx, p || zp)) ([], False)
-                        . map strCont
+    split :: String -> String -> ([String], Bool)
+    split k         = foldr hasContinue' ([], False)
                         . filter (/= k)
                         . splitBy k
-    --f :: String -> [String] -> (([String], Bool), [String])
+      where
+        hasContinue' x (zx, zp)
+                    = let (x', p) = hasContinue x in (x' : zx, p || zp)
+    f :: String -> [String] -> (([String], Bool), [String])
     f x []          = (split [] x, [])
     f x (k : ks)
       | null ks     = (z, [k])

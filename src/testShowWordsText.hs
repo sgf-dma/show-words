@@ -1,11 +1,14 @@
 
 import Control.Applicative
+import Control.Monad
+import Control.Monad.Identity
+import Control.Monad.Reader
 
 import SgfOrderedLine
+import ShowWordsConfig (Config (..))
 import ShowWordsText
 
--- NOTE: In order to compile this file, SgfOrderedLine file must be edit to
--- import Line data constructor.
+main                = print runAll
 
 runAll :: [Bool]
 runAll              = runAllTests testSplitText
@@ -17,16 +20,24 @@ runAllTests         = all id . runTests
 runTests :: (Eq a) => [(a, a)] -> [Bool]
 runTests            = foldr (\(x, y) z -> (x == y) : z) []
 
-wsp = WordsSeps   {columnSep = " : ", phraseSep = "; ", referenceSep = " - "}
+testConf            = Config
+                        { confReferenceSep  = " - "
+                        , confColumnSep     = " : "
+                        , confPhraseSep     = "; "
+                        , confColumnEq      = (==)
+                        }
 
 -- This funcion just specifies the order in which splitToColumns and
 -- splitToPhrases should be called.
-splitText :: WordsSeps -> [String] -> [[[String]]]
-splitText           = (.) <$> splitToPhrases <*> splitToColumns
+splitText :: (Config -> Config) -> [String] -> [[[String]]]
+splitText f         = runIdentity 
+                        . flip runReaderT testConf
+                        . local f
+                        . (splitToPhrases <=< splitToColumns)
 
 testSplitText :: [ ([[[String]]], [[[String]]]) ]
 testSplitText   = 
-    [ ( splitText wsp   [ "a - b - c"
+    [ ( splitText id    [ "a - b - c"
                         , "d - e - f"
                         , "g : h : i"
                         , "k : l : m"
@@ -37,7 +48,7 @@ testSplitText   =
         , [["k"], ["l"], ["m"]]
         ]
       )
-    , ( splitText wsp   [ "a; A - b - c"
+    , ( splitText id    [ "a; A - b - c"
                         , "d - e - f; "
                         , "; g : h;  : i"
                         , "k : l; L : m"
@@ -48,7 +59,7 @@ testSplitText   =
         , [["k"], ["l", "L"], ["m"]]
         ]
       )
-    , ( splitText wsp   [ "a; A - b\\;  - c"
+    , ( splitText id    [ "a; A - b\\;  - c"
                         , "d - e - f; "
                         , "; g : h;  : i"
                         , "k : l; L : m"
@@ -59,7 +70,7 @@ testSplitText   =
         , [["k"], ["l", "L"], ["m"]]
         ]
       )
-    , ( splitText wsp   [ "a; A - b\\;  - \\; c"
+    , ( splitText id    [ "a; A - b\\;  - \\; c"
                         , "d - e - f; "
                         , "; g : h;  : i"
                         , "k : l; L : m"
@@ -70,7 +81,7 @@ testSplitText   =
         , [["k"], ["l", "L"], ["m"]]
         ]
       )
-    , ( splitText wsp   [ "a; A; \\ - ; b - c"
+    , ( splitText id    [ "a; A; \\ - ; b - c"
                         , "d - e - f; "
                         , "; g;  : h;  : i"
                         , "k : ; l; L : m"
@@ -80,7 +91,7 @@ testSplitText   =
         , [["k"], ["", "l", "L"], ["m"]]
         ]
       )
-    , ( splitText wsp   [ "a; A - ; b\\;  - \\; c\\"
+    , ( splitText id    [ "a; A - ; b\\;  - \\; c\\"
                         , "\\d - e - \\f; "
                         , "; g : h;  : i"
                         , "k : \\; l; L : m"
@@ -90,7 +101,7 @@ testSplitText   =
         , [["k"], ["\\", "l", "L"], ["m"]]
         ]
       )
-    , ( splitText wsp   [ "a; A - ; b\\;  - \\; c\\"
+    , ( splitText id    [ "a; A - ; b\\;  - \\; c\\"
                         , "\\d - e - \\f; "
                         , "; g : h; \\ : ; "
                         , " : \\; l;L : m"
@@ -99,7 +110,7 @@ testSplitText   =
         , [["", "g"], ["h", "\\", "l;L"], ["", "m"]]
         ]
       )
-    , ( splitText wsp   [ ";  - \\;  - \\\\\\"
+    , ( splitText id    [ ";  - \\;  - \\\\\\"
                         , "\\; - ;  - "
                         , "; : ; \\ : ;"
                         , "\\;  : \\; : \\"
@@ -108,7 +119,7 @@ testSplitText   =
         , [[";\\", ""], ["", "\\;"], [";"]]
         ]
       )
-    , ( splitText wsp   [ ";  - \\;  - \\\\\\"
+    , ( splitText id    [ ";  - \\;  - \\\\\\"
                         , "\\; - ;  - \\"
                         , "; : ;: ;"
                         , "\\;  : \\; : \\"
@@ -117,7 +128,7 @@ testSplitText   =
         , [["\\", ""], ["\\;"], [""]]
         ]
       )
-    , ( splitText wsp   [ "a; A - ; b\\;  - \\; c\\"
+    , ( splitText id    [ "a; A - ; b\\;  - \\; c\\"
                         , "\\d- e - \\f; "
                         , "; g : h; \\ : ; "
                         , ": \\; l;L : m"
@@ -126,7 +137,7 @@ testSplitText   =
         , [["", "g: \\", "l;L"], ["h", "m"], ["", ""]]
         ]
        )
-     , ( splitText wsp  [ " - -\\"
+     , ( splitText id   [ " - -\\"
                         , "\\d- e - \\f; "
                         , "; g: h; \\ : ; "
                         , "k : \\; l : "
@@ -135,7 +146,7 @@ testSplitText   =
        , [["", "g: h", "k"], ["", "\\", "l"], [""]]
        ]
      )
-     , ( splitText wsp  [ " - -\\"
+     , ( splitText id   [ " - -\\"
                         , " - ; "
                         , "; ; \\ : "
                         , " : ;  : "
@@ -144,43 +155,47 @@ testSplitText   =
        , [["", "", ""], ["", ""], [""]]
        ]
      )
-     , ( splitText wsp  [ " - -\\"
+     , ( splitText id   [ " - -\\"
                         , " - ; "
                         ]
      , [ [[""], ["-; "]]
        ]
      )
-     , ( splitText wsp  [ " - \\"
+     , ( splitText id   [ " - \\"
                         ]
      , [ [[""], [""]]
        ]
      )
-     , ( splitText wsp  []
+     , ( splitText id   []
      , [ ]
      )
-    , ( splitText (WordsSeps
-                    { columnSep = ""
-                    , phraseSep = ""
-                    , referenceSep = ""
-                    })  [ "a; A - ; b\\;  - \\; c\\"
-                        , "\\d - e - \\f; "
-                        , "; g : h; \\ : i"
-                        , "k : \\; l; L : m"
-                        ]
+    , ( splitText   (\conf -> conf
+                                { confReferenceSep = ""
+                                , confColumnSep = ""
+                                , confPhraseSep = ""
+                                }
+                    )
+                    [ "a; A - ; b\\;  - \\; c\\"
+                    , "\\d - e - \\f; "
+                    , "; g : h; \\ : i"
+                    , "k : \\; l; L : m"
+                    ]
       , [ [["a; A - ; b\\;  - \\; c\\d - e - \\f; "]]
         , [["; g : h; \\ : i"]]
         , [["k : \\; l; L : m"]]
         ]
       )
-    , ( splitText (WordsSeps
-                    { columnSep = ""
-                    , phraseSep = ""
-                    , referenceSep = ""
-                    })  [ "a; A - ; b\\;  - \\; c\\"
-                        , "\\d - e - \\f; "
-                        , "; g : h; \\ : i\\"
-                        , "k : \\; l; L : m"
-                        ]
+    , ( splitText   (\conf -> conf
+                                { confReferenceSep = ""
+                                , confColumnSep = ""
+                                , confPhraseSep = ""
+                                }
+                    )
+                    [ "a; A - ; b\\;  - \\; c\\"
+                    , "\\d - e - \\f; "
+                    , "; g : h; \\ : i\\"
+                    , "k : \\; l; L : m"
+                    ]
       , [ [["a; A - ; b\\;  - \\; c\\d - e - \\f; "]]
         , [["; g : h; \\ : ik : \\; l; L : m"]]
         ]
@@ -189,132 +204,160 @@ testSplitText   =
 
 -- This is not real showWods, just part of it. Here are two possible sequences
 -- of ShowWordsText functions, which may be used in showWords.
-showWords1 :: [String] -> [String] -> [Line [String]]
-showWords1  colNames    = splitToPhrases wsp
-                            . reorderColumns (==) colNames
-                            . splitToColumns wsp
+showWords1 :: (Config -> Config) -> [String] -> [Line [String]]
+showWords1 f contents   = runIdentity
+                            . flip runReaderT testConf
+                            . local f
+                            $ do
+                                xs <- splitToColumns contents
+                                Config {confColumnNames = colNames} <- ask
+                                splitToPhrases
+                                    . reorderColumns (==) colNames
+                                    $ xs
 
-showWords2 :: [String] -> [String] -> [Line [String]]
-showWords2  colNames    = reorderColumns refEq (map (: []) colNames)
-                            . splitToPhrases wsp
-                            . splitToColumns wsp
+showWords2 :: (Config -> Config) -> [String] -> [Line [String]]
+showWords2 f contents   = runIdentity
+                            . flip runReaderT testConf
+                            . local f
+                            $ do
+                                xs <- splitToPhrases
+                                        <=< splitToColumns
+                                        $ contents
+                                colNames <- getColNames
+                                colEq <- getColEq
+                                return (reorderColumns colEq colNames xs)
   where
-    refEq :: [String] -> [String] -> Bool
-    refEq xs ys             = (normalize xs) == (normalize ys)
+    getColNames :: (Monad m) => ReaderT Config m [[String]]
+    getColNames     = ask >>= return . map (: []) . confColumnNames
+    getColEq :: (Monad m) => ReaderT Config m ([String] -> [String] -> Bool)
+    getColEq        = do
+        Config {confColumnEq = eq} <- ask
+        return (\xs ys -> normalize xs `eq` normalize ys)
       where
-        normalize           = concat . map dropSpaces
+        normalize   = concatMap dropSpaces
 
-testShowWords :: ([String] -> [String] -> [Line [String]])
+testShowWords :: ((Config -> Config) -> [String] -> [Line [String]])
               -> [ ([Line [String]], [Line [String]]) ]
 testShowWords showWords =
-    [ ( showWords ["a", "b", "c"]   [ "a - b - c"
-                                    , "d - e - f"
-                                    , "g : h : i"
-                                    , "k : l : m : n"
-                                    ]
+    [ ( showWords   (\conf -> conf {confColumnNames = ["a", "b", "c"]})
+                    [ "a - b - c"
+                    , "d - e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["a"], ["b"], ["c"]]
         , Line [["d - e - f"]] []
         , Line [["g"], ["h"], ["i"]] []
         , Line [["k"], ["l"], ["m"]] [["n"]]
         ]
       )
-    , ( showWords ["c", "a", "d", "b"]  [ "a - b - c"
-                                        , "d - e - f"
-                                        , "g : h : i"
-                                        , "k : l : m : n"
-                                        ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["c", "a", "d", "b"]})
+                    [ "a - b - c"
+                    , "d - e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["c"], ["a"], ["b"]]
         , Line [["d - e - f"]] []
         , Line [["i"], ["g"], ["h"]] []
         , Line [["m"], ["k"], ["l"]] [["n"]]
         ]
       )
-    , ( showWords ["", "c", "a"]    [ "a - b - c"
-                                    , "d - e - f"
-                                    , "g : h : i"
-                                    , "k : l : m : n"
-                                    ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["", "c", "a"]})
+                    [ "a - b - c"
+                    , "d - e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["c"], ["a"], ["b"]]
         , Line [["d - e - f"]] []
         , Line [["i"], ["g"]] [["h"]]
         , Line [["m"], ["k"]] [["l"], ["n"]]
         ]
       )
-    , ( showWords ["f", "b -ce", "ed"]   [ "a\\ - b -c"
-                                    , "d - e - f"
-                                    , "g : h : i"
-                                    , "k : l : m : n"
-                                    ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["f", "b -ce", "ed"]})
+                    [ "a\\ - b -c"
+                    , "d - e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["f"], ["b -ce"], ["ad"]]
         , Line [["i"], ["h"]] [["g"]]
         , Line [["m"], ["l"]] [["k"], ["n"]]
         ]
       )
-    , ( showWords ["a"]             [ "a - b - c"
-                                    , "d - e - f"
-                                    , "g : h : i"
-                                    , "k : l : m : n"
-                                    ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["a"]})
+                    [ "a - b - c"
+                    , "d - e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["a"], ["b"], ["c"]]
         , Line [["d - e - f"]] []
         , Line [["g"]] [["h"], ["i"]]
         , Line [["k"]] [["l"], ["m"], ["n"]]
         ]
       )
-    , ( showWords ["bf"]            [ "a - b\\ - c"
-                                    , "d -e - f"
-                                    , "g : h : i"
-                                    , "k : l : m : n"
-                                    ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["bf"]})
+                    [ "a - b\\ - c"
+                    , "d -e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["bf"], ["ad -e"], ["c"]]
         , Line [["h"]] [["g"], ["i"]]
         , Line [["l"]] [["k"], ["m"], ["n"]]
         ]
       )
-    , ( showWords []                [ "a - b - c"
-                                    , "d - e - f"
-                                    , "g : h : i"
-                                    , "k : l : m : n"
-                                    ]
+    , ( showWords   (\conf -> conf {confColumnNames = []})
+                    [ "a - b - c"
+                    , "d - e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["a"], ["b"], ["c"]]
         , Line [] [["d - e - f"]]
         , Line [] [["g"], ["h"], ["i"]]
         , Line [] [["k"], ["l"], ["m"], ["n"]]
         ]
       )
-    , ( showWords ["a", "cf", "a; d"]   [ "a;  - b - c\\"
-                                        , "d -  e - f"
-                                        , "g : h : i"
-                                        , "k : l : m : n"
-                                        ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["a", "cf", "a; d"]})
+                    [ "a;  - b - c\\"
+                    , "d -  e - f"
+                    , "g : h : i"
+                    , "k : l : m : n"
+                    ]
       , [ Line [] [["cf"], ["a; d"], ["b e"]]
         , Line [["i"], ["g"]] [["h"]]
         , Line [["m"], ["k"]] [["l"], ["n"]]
         ]
       )
-    , ( showWords ["a", "cf", "a; d"]   [ "a;  - b - c\\"
-                                        , "d -  e - f"
-                                        ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["a", "cf", "a; d"]})
+                    [ "a;  - b - c\\"
+                    , "d -  e - f"
+                    ]
       , [ Line [] [["cf"], ["a; d"], ["b e"]]
         ]
       )
-    , ( showWords ["a", "c", "a; "]     [ "a;  - b - c\\"
-                                        ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["a", "c", "a; "]})
+                    [ "a;  - b - c\\"
+                    ]
       , [ Line [] [["c"], ["a; "], ["b"]]
         ]
       )
-    , ( showWords ["a", "c", "a; "]     [ "a;  : b : c\\"
-                                        ]
+    , ( showWords   (\conf -> conf {confColumnNames = ["a", "c", "a; "]})
+                    [ "a;  : b : c\\"
+                    ]
       , [ Line [] [["a;  : b : c"]]
         ]
       )
-    , ( showWords ["a", "c", "a; "]   []
+    , ( showWords   (\conf -> conf {confColumnNames = ["a", "c", "a; "]})
+                    []
       , []
       )
-    , ( showWords []   []
+    , ( showWords   (\conf -> conf {confColumnNames = []})
+                    []
       , []
       )
     ]
-
-test1 = showWords1 ["bf"]            [ ]
 

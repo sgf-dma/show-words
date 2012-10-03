@@ -29,8 +29,8 @@ dropSpaces          = dropWhile isSpace . dropWhileEnd isSpace
 -- time or only last one and only if it is unescaped. After all, only the last
 -- unescaped backslash continues line, but others are just characters. On the
 -- other hand, they're almost ever just a garbage.
-isContinued :: String -> (String, Bool)
-isContinued         = foldr f ([], False)
+hasContinue :: String -> (String, Bool)
+hasContinue         = foldr f ([], False)
   where
     f :: Char -> (String, Bool) -> (String, Bool)
     f x ([], s)
@@ -56,10 +56,12 @@ splitTextLine :: String -> BState [String] (ZipList' String, Bool)
 splitTextLine x     = BState (f x) >>= \ ~(xs, p) -> return (ZipList' xs, p)
   where
     split :: String -> String -> ([String], Bool)
-    split k         = foldr (\(x, p) (zx, zp) -> (x : zx, p || zp)) ([], False)
-                        . map isContinued
+    split k         = foldr hasContinue' ([], False)
                         . filter (/= k)
                         . splitBy k
+      where
+        hasContinue' x (zx, zp)
+                    = let (x', p) = hasContinue x in (x' : zx, p || zp)
     f :: String -> [String] -> (([String], Bool), [String])
     f x []          = (split [] x, [])
     f x (k : ks)
