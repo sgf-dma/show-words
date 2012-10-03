@@ -15,7 +15,7 @@ import Control.Monad.Reader
 
 import SgfList
 import SgfOrderedLine
-import ShowWordsConfig
+import ShowWordsConfig (Config (..))
 
 
 -- Drop leading and trailing spaces.

@@ -17,7 +17,7 @@ import Control.Monad.Reader
 
 import SgfList (zipMap)
 import SgfOrderedLine
-import ShowWordsConfig
+import ShowWordsConfig (Config (..))
 
 -- FIXME: Move this to ShowWords ?
 putStrF :: String -> IO ()
@@ -77,9 +77,9 @@ putPhrases []           = return ()
 putPhrases (ref : xs)   = do
     Config
         { confAction = f
-        , confReferenceSep = refSp
-        , confColumnSep = colSp
-        , confPhraseSep = phrSp
+        , confOutputReferenceSep = refSp
+        , confOutputColumnSep = colSp
+        , confOutputPhraseSep = phrSp
         } <- ask
     lift $ do
         putLine return refSp "" ref

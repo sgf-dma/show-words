@@ -17,24 +17,25 @@ import ShowWordsConfig
 import ShowWordsText
 import ShowWordsOutput
 
+-- FIXME: v2.1. Use of lines hardcodes, that  line separator is newline. In
+-- other words, newline is special and always line separator, and actually is
+-- not allowed in neither column nor phrase separator (it is allowed, but
+-- it'll never match, because lines deletes all newlines). Probably, i should
+-- not hardcode newline in such way and use splitToLines instead.
+-- FIXME: v2.1. putPhrases has the same concerns as above: newline is special,
+-- and each logical line terminated with it. I think, i should use line
+-- separator to terminate logical line, which normally be newline, but not
+-- hardcode this choice.
 -- FIXME: v2.1. Another mode, where all phrases outputed at once and user
 -- answer checked against them _without_ order. Check for this mode may be
 -- implemented with indsByElems with Maybe as Alternative. But this require
 -- indsByElems to be rewritten to use Alternative-s..
 -- FIXME: v2.2. Add statistic? WriterT w IO, is it not?
--- FIXME: Move defaultConf to ShowWordsConfig? But setAction is not available
--- there..
 -- FIXME: Mark place, where column match (literal or not) performed.
 -- Also, mark place, where separator matches preformed, as well as answer
 -- matches.
--- FIXME: Several output formats. Increase number of lines (on which one input
--- line split):
---      - line by line (current);
---      - column by line;
---      - phrase by line;
--- FIXME: Empty answer == skip answer, but do not check.
 -- FIXME: Quickcheck tests,
--- FIXME: Prefix match for column names?
+-- FIXME: Revert prefix match for column names?
 -- FIXME: Use '-' for read words from stdin. But stdin is used for interaction
 -- with user, so this is only possible in "reorder" mode.
 -- FIXME: Disabled echo for "check" mode is not convenient. Though, if it is
@@ -86,18 +87,6 @@ import ShowWordsOutput
 -- may lead to nasty bugs, when all seems ok, but not works however. So,
 -- double check column names in words file and on command line!
 
-defaultConf :: Config
-defaultConf         = Config
-                        { confAction       = return
-                        , confInputFile    = "./words.txt"
-                        , confReferenceSep = " - "
-                        , confColumnSep    = " : "
-                        , confPhraseSep    = "; "
-                        , confColumnEq     = (==)
-                        , confColumnNames  = []
-                        , confLineOrder    = "disabled"
-                        }
-
 -- Set action, which will be executed before every phrase.
 setAction :: String -> String -> IO String
 setAction xs
@@ -105,16 +94,34 @@ setAction xs
   | xs == "wait"    = waitKey
   | otherwise       = return
 
+-- Change output separators according to choosed output mode. I can't do this
+-- during arguments parsing, because separator options also change output
+-- separators, and, hence, if such option follow output mode option, change to
+-- output separators from output mode will be overwritten by new output
+-- separator value.
+applyOutputMode :: Config -> Config
+applyOutputMode conf@(Config {confOutputMode = mode})
+  | mode == "column"    = conf  { confOutputColumnSep = colSp' }
+  | mode == "phrase"    = conf  { confOutputColumnSep = colSp'
+                                , confOutputPhraseSep = phrSp'
+                                }
+  | otherwise           = conf
+  where
+    colSp'              = "\n    " ++ confOutputColumnSep conf
+    phrSp'              = "\n        " ++ confOutputPhraseSep conf
+
 optsDescr :: [OptDescr (Config -> Config)]
 optsDescr = 
     [ Option    ['a']
                 ["action"]
-                (ReqArg (\mode conf -> conf {confAction = setAction mode})
+                (ReqArg (\f conf -> conf {confAction = setAction f})
                         "ACTION"
                 )
-                ("Set action to execute before every phrase to ACTION"
-                    ++ "(default is no action). "
-                    ++ "Valid values are 'wait' and 'check'."
+                ("Action to execute before every phrase"
+                    ++ " (default is no action).\n"
+                    ++ "Valid values are:\n"
+                    ++ " - 'wait' for waiting any key before each phrase.\n"
+                    ++ " - 'check' for checking input against next phrase."
                 )
     , Option    ['f']
                 ["file"]
@@ -125,7 +132,11 @@ optsDescr =
                 )
     , Option    ['r']
                 ["reference-sep"]
-                (ReqArg (\refSp conf -> conf {confReferenceSep = refSp})
+                (ReqArg (\refSp conf -> conf
+                                          { confReferenceSep = refSp
+                                          , confOutputReferenceSep = refSp
+                                          }
+                        )
                         "REFERENCE_SEP"
                 )
                 ("Reference (heading) separator (default \""
@@ -134,7 +145,11 @@ optsDescr =
                 )
     , Option    ['c']
                 ["column-sep"]
-                (ReqArg (\colSp conf -> conf {confColumnSep = colSp})
+                (ReqArg (\colSp conf -> conf
+                                          { confColumnSep = colSp
+                                          , confOutputColumnSep = colSp
+                                          }
+                        )
                         "COLUMN_SEP"
                 )
                 ("Column separator (default \""
@@ -143,7 +158,11 @@ optsDescr =
                 )
     , Option    ['p']
                 ["phrase-sep"]
-                (ReqArg (\phrSp conf -> conf {confPhraseSep = phrSp})
+                (ReqArg (\phrSp conf -> conf
+                                          { confPhraseSep = phrSp
+                                          , confOutputPhraseSep = phrSp
+                                          }
+                        )
                         "PHRASE_SEP"
                 )
                 ("Phrase separator (default \""
@@ -156,6 +175,17 @@ optsDescr =
                 ("Shuffle lines (default \""
                     ++ confLineOrder defaultConf
                     ++ "\")."
+                )
+    , Option    ['m']
+                ["output-mode"]
+                (ReqArg (\mode conf -> conf {confOutputMode = mode})
+                        "OUTPUT_MODE"
+                )
+                ("Output mode (default 'line')."
+                    ++ "Valid values are:\n"
+                    ++ " - 'line' for outputting each line at new line.\n"
+                    ++ " - 'column' for outputting each column at new line.\n"
+                    ++ " - 'phrase' for outputting each phrase at new line.\n"
                 )
     ]
 
@@ -189,9 +219,10 @@ showWords          = do
             . reorderColumns colEq colNames
             $ xs
     lift (hSetEcho stdin False)
-    putPhrases
-        . dropSpaces'
-        $ xs'
+    local applyOutputMode $
+        putPhrases
+            . dropSpaces'
+            $ xs'
     lift (putStrF "Bye!\n")
   where
     readFile' :: ReaderT Config IO String
