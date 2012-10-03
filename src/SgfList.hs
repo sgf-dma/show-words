@@ -84,6 +84,12 @@ indBase             = 1
 --      \xs -> order >>= flip elemByInd xs
 --
 -- and speed it up dramatically.
+-- FIXME: Versions, which work for several indexes (keys), and may have
+-- several results (e.g. indsByElems) should return in Alernative. This allows
+-- to not provide special version for infinity lists, because Alternative may
+-- be defined in such way, that (<|>) ignores 2nd argument. So, will function
+-- work on infinity list or not will be completely defined by Alternative
+-- instance definition.
 
 -- Folding functions for use in State monads for indexing list.
 -- 
@@ -285,6 +291,8 @@ zipWith' _ xs []                = xs
 zipWith' _ [] ys                = ys
 zipWith' f (x : xs) (y : ys)    = f x y : zipWith' f xs ys
 
+-- FIXME: zipMap should return (Maybe (t b)) and use (StateT s Maybe) to
+-- handle failure properly.
 -- FIXME: Empty (or not long enough) list of functions is exception for
 -- zipMap. To properly fix this, i need a way for function g to somehow
 -- continue returning (m b) values without having (a -> b) function. In other
@@ -306,9 +314,17 @@ zipMap :: (T.Traversable t) => [a -> b] -> t a -> t b
 zipMap fs           = fst . flip runState fs . T.mapM g
   where
     g x             = do
-                        (f : fs) <- get
-                        put fs
+                        (f : fs') <- get
+                        put fs'
                         return (f x)
+
+-- FIXME: Am i really need monadic zipFold ? Or just slightly different
+-- zipMap, which folds result (i.e. does not have constraint T.Traversable)?
+-- And, in such case, should i use (StateT s Maybe) here to just reflect
+-- possible failure, nothing more? In other words, constraint MonadPlus seems
+-- useless, since i don't need MonadPlus, i just need failure due to
+-- not-equal-length lists (as well as in zipMap), and, hence, why not just use
+-- Maybe?
 
 -- Generic list Eq instance or "zippy monadic foldMap". List of monadic
 -- functions [a -> m b] is "zippy applied" to other list [a] and results are
@@ -323,20 +339,20 @@ zipMap fs           = fst . flip runState fs . T.mapM g
 -- applied to this function.
 zipFoldM :: (MonadPlus m, Monoid b) => [a -> m b] -> [a] -> m b
 zipFoldM fs xs      = do
-                        (y, fs) <- runStateT (zipFoldrMT xs) fs
-                        case fs of
+                        (y, gs) <- runStateT (zipFoldrMT xs) fs
+                        case gs of
                           [] -> return y
                           _  -> mzero
 
 -- I need foldl here, because other zipFoldMT will not work, when either of
 -- lists is infinity.
 zipFoldlMT :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
-zipFoldlMT          = foldlM (\z -> StateT . f z) mempty
+zipFoldlMT          = foldlM (\z -> StateT . g z) mempty
   where
-    --f :: (MonadPlus m, Monoid b) =>
+    --g :: (MonadPlus m, Monoid b) =>
     --     a -> b -> [a -> m b] -> m (b, [a -> m b])
-    f _ _ []        = mzero
-    f z x (f : fs)  = do
+    g _ _ []        = mzero
+    g z x (f : fs)  = do
                         y <- f x
                         return (y `mappend` z, fs)
 
@@ -350,13 +366,13 @@ zipFoldlMT          = foldlM (\z -> StateT . f z) mempty
 -- Haskell for Great Good" for details.
 zipFoldrMT :: (MonadPlus m, Monoid b) => [a] -> StateT [a -> m b] m b
 zipFoldrMT xs       = do
-                        g <- foldlM (\z -> StateT . f z) (mempty `mappend`) xs
-                        return (g mempty)
+                        h <- foldlM (\z -> StateT . g z) (mempty `mappend`) xs
+                        return (h mempty)
   where
-    --f :: (MonadPlus m, Monoid b) =>
+    --g :: (MonadPlus m, Monoid b) =>
     --     a -> b -> [a -> m b] -> m (b, [a -> m b])
-    f _ _ []        = mzero
-    f z x (f : fs)  = do
+    g _ _ []        = mzero
+    g z x (f : fs)  = do
                         y <- f x
                         return (z . (y `mappend`), fs)
 
@@ -366,8 +382,6 @@ listEq :: (a -> a -> Bool) -> [a] -> [a] -> Bool
 listEq eq xs        = let xs' = map (\x -> Just . All . (x `eq`)) xs
                       in  getAll . fromMaybe (All False) . zipFoldM xs'
 
-test1 xs            = let xs' = map (\x -> Just . (: []) . (x, )) xs
-                      in  zipFoldM xs'
 
 -- Random.
 --

@@ -8,7 +8,7 @@ module ShowWordsOutput
     )
   where
 
-import System.IO                -- For hSetEcho, hFlush, stdin, stdout.
+import System.IO (hFlush, stdout)
 import Codec.Binary.UTF8.String -- For encode, decode.
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Foldable as F
@@ -19,7 +19,7 @@ import SgfList (zipMap)
 import SgfOrderedLine
 import ShowWordsConfig
 
-
+-- FIXME: Move this to ShowWords ?
 putStrF :: String -> IO ()
 putStrF x           = do
                         B.putStr . B.pack . encode $ x

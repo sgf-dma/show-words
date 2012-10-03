@@ -18,7 +18,9 @@ import ShowWordsText
 import ShowWordsOutput
 
 -- FIXME: v2.1. Another mode, where all phrases outputed at once and user
--- answer checked against them _without_ order.
+-- answer checked against them _without_ order. Check for this mode may be
+-- implemented with indsByElems with Maybe as Alternative. But this require
+-- indsByElems to be rewritten to use Alternative-s..
 -- FIXME: v2.2. Add statistic? WriterT w IO, is it not?
 -- FIXME: Move defaultConf to ShowWordsConfig? But setAction is not available
 -- there..

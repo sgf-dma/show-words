@@ -110,6 +110,7 @@ reorderColumns eq colNames xs@(refs : _)
     -- I need to store reference as "other" element (see Line description) to
     -- not execute any actions before its columns.
     makeRef :: [Line a] -> [Line a]
+    makeRef []          = []
     makeRef (refl : ys) = orderList [] (F.foldr (:) [] refl) : ys
 
 -- FIXME: For v3. Add support for tag column, which have arbitrary number of
