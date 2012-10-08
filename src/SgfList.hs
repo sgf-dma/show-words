@@ -50,7 +50,7 @@ foldlM g z (x : xs)   = g z x >>= \z' -> foldlM g z' xs
 
 -- Backward state monad from "The essence of functional programming" by Philip
 -- Wadler.
-newtype BState s a  = BState {runBState :: (s -> (a, s))}
+newtype BState s a  = BState {runBState :: s -> (a, s)}
 instance Monad (BState s) where
     return x        = BState (\s -> (x, s))
     BState m >>= f  = BState $ \s2 ->
@@ -93,8 +93,9 @@ indBase             = 1
 
 -- Folding functions for use in State monads for indexing list.
 -- 
--- If all elements from key list ks satisfy predicate p, add x to the result
--- zs. This folding function will not work on infinity list.
+-- If key list ks satisfies predicate p (function name comes from the fact,
+-- that entire key list should satisfy predicate), add x to the result zs.
+-- This folding function will not work on infinity list.
 allElems :: ([a] -> Bool) -> [a] -> b -> [b] -> ([b], [a])
 allElems p ks x zs
   | p ks            = (x : zs, ks)
@@ -136,7 +137,7 @@ elemsByNotInds js   = fst . flip runBState (indBase, js) . elemsByNotIndsM
 elemsByNotIndsM :: [a] -> BState (Index, [Index]) [a]
 elemsByNotIndsM     = foldrM (\x -> BState . f x) []
   where
-    f x zs (s, js)  = fmap (s + 1, ) $ allElems (all (s /=)) js x zs
+    f x zs (s, js)  = fmap (s + 1, ) $ allElems (notElem s) js x zs
 
 -- Reverse of elemByInds. Find _first_ index of all elements in the supplied
 -- list.  Works on infinity input list.
@@ -270,7 +271,7 @@ splitByM xs         = do
 -- returns True along with new element (monoid), mappend new element into head
 -- of accumulator, otherwise just add it to the accumulator list.
 foldrMerge :: (Monad m, Monoid b) => (a -> m (b, Bool)) -> [a] -> m [b]
-foldrMerge g        = foldrM (\x zs -> g x >>= return . f zs) []
+foldrMerge g        = foldrM (\x zs -> liftM (f zs) (g x)) []
   where
     f :: (Monoid b) => [b] -> (b, Bool) -> [b]
     f [] (x', _)    = [x']

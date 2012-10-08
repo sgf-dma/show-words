@@ -10,6 +10,7 @@ import qualified Data.ByteString.Lazy as B
 import System.Environment       -- For getArgs.
 import System.Console.GetOpt    -- For getOpt.
 import System.Random (getStdGen)
+import Data.Function (on)
 import Control.Monad.Reader
 
 import SgfList (listEq)
@@ -242,7 +243,7 @@ showWords          = do
     getColEq :: (Monad m) => ReaderT Config m ([String] -> [String] -> Bool)
     getColEq        = do
         Config {confColumnEq = eq} <- ask
-        return (\xs ys -> listEq eq (normalize xs) (normalize ys))
+        return (listEq eq `on` normalize)
       where
         normalize   = map dropSpaces
     -- FIXME: Why not just use 'concat' instead of listEq ?

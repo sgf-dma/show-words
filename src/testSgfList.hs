@@ -1,6 +1,7 @@
 
 import SgfList
 
+main :: IO ()
 main                = print runAll
 
 runAll :: [Bool]
@@ -16,56 +17,60 @@ runAllTests         = all id . runTests
 runTests :: (Eq a) => [(a, a)] -> [Bool]
 runTests            = foldr (\(x, y) z -> (x == y) : z) []
 
+-- For resolving warnings in testIndex:
+--      "Defaulting the following constraint(s) to type `Integer'"
+intEq :: Int -> Int -> Bool
+intEq               = (==)
 -- fst - function call, snd - answer.
 --testIndex
 testIndex :: [([Int], [Int])]
 testIndex           =
-    [ (elemByInd 3 [1,2,1], [1])
-    , (elemByInd 3 [1,2,4], [4])
-    , (elemByInd 7 [1,2,4], [])
-    , (elemByInd 3 [1..], [3])
-    , (elemsByInds [] [], [])
-    , (elemsByInds [] [1..], [])
-    , (elemsByInds [3..] [], [])
-    , (elemsByInds [2] [1..], [2])
-    , (elemsByInds [1..] [1], [1])
-    --, (elemsByInds [2..] [1], [1]) -- Index not found in infinity indexes list.
-    , (elemsByInds [2,8,3] [1,3,2], [3,2])
-    , (elemsByNotInds [] [], [])
-    --, (elemsByNotInds [] [1..], [1..]) -- Entire infinity list is result.
-    , (elemsByNotInds [3..] [], [])
-    --, (elemsByNotInds [2..] [1], [1]) -- Index not found in infinity indexes list.
-    , (elemsByNotInds [2] [1], [1])
-    , (elemsByNotInds [2,8] [1,2,3], [1,3])
-    , (elemsByNotInds [2,8,1,3] [1,2,3], [])
-    , (indByElem (==) 2 [], [])
-    , (indByElem (==) 2 [1..], [2])
-    , (indByElem (==) 3 [1,2], [])
-    , (indsByElems1 (==) [] ([] :: [Int]), [])
-    , (indsByElems1 (==) [] [1..], [])
-    , (indsByElems1 (==) [1..] [], [])
-    , (indsByElems1 (==) [2] [1..], [2])
-    , (indsByElems1 (==) [1] [1, 2, 1], [1])
-    , (indsByElems1 (==) [1,1] [1, 2, 1], [1])
-    , (indsByElems1 (==) [1,3,2] [1, 2, 1], [1,2])
-    , (indsByElems1 (==) [1..] [1, 2, 3], [1, 2, 3])
-    --, (indsByElems1 (==) [1..] [1, 2, 1], [1, 2]) -- Element not found in infinity keys list (because have been deleted).
-    --, (indsByElems1 (==) [2..] [1, 2, 3], [1, 2, 3]) -- Element not found in infinity keys list.
-    , (indsByElems (==) [] ([] :: [Int]), [])
-    , (indsByElems (==) [1..] [], [])
-    , (indsByElems (==) [] [1..], [])
-    -- , (indsByElems (==) [2,3] [1..], [2,3]) -- Infinity list.
-    , (indsByElems (==) [2,3] [3,2,3,2], [1,2,3,4])
-    , (indsByElems (==) [2,3] [1,2,1,2], [2,4])
-    --, (indsByElems (==) [2..] [1,2], [2]) -- Element not found in infinity keys list.
-    , (indsByNotElems (==) [] ([] :: [Int]), [])
-    --, (indsByNotElems (==) [] [1..], [1..]) -- Entire infinity list is result.
-    , (indsByNotElems (==) [1..] [], [])
-    , (indsByNotElems (==) [1..] [1], [])
-    --, (indsByNotElems (==) [2..] [1], []) -- Element not found in infinity keys list.
-    , (indsByNotElems (==) [1] [1,2,1], [2])
-    , (indsByNotElems (==) [1,3] [1,2,1,4], [2,4])
-    , (indsByNotElems (==) [1,3,4,2] [1,2,1,4], [])
+    [ (elemByInd 3 [1,2,1]  , [1])
+    , (elemByInd 3 [1,2,4]  , [4])
+    , (elemByInd 7 [1,2,4]  , [])
+    , (elemByInd 3 [1..]    , [3])
+    , (elemsByInds []       []      , [])
+    , (elemsByInds []       [1..]   , [])
+    , (elemsByInds [3..]    []      , [])
+    , (elemsByInds [2]      [1..]   , [2])
+    , (elemsByInds [1..]    [1]     , [1])
+    --, (elemsByInds [2..]    [1]           , [1]) -- Index not found in infinity indexes list.
+    , (elemsByInds [2,8,3]  [1,3,2] , [3,2])
+    , (elemsByNotInds []        []      , [])
+    --, (elemsByNotInds []        [1..]   , [1..]) -- Entire infinity list is result.
+    , (elemsByNotInds [3..]     []      , [])
+    --, (elemsByNotInds [2..]     [1]     , [1]) -- Index not found in infinity indexes list.
+    , (elemsByNotInds [2]       [1]     , [1])
+    , (elemsByNotInds [2,8]     [1,2,3] , [1,3])
+    , (elemsByNotInds [2,8,1,3] [1,2,3] , [])
+    , (indByElem intEq 2 []     , [])
+    , (indByElem intEq 2 [1..]  , [2])
+    , (indByElem intEq 3 [1,2]  , [])
+    , (indsByElems1 intEq []        []       , [])
+    , (indsByElems1 intEq []        [1..]    , [])
+    , (indsByElems1 intEq [1..]     []       , [])
+    , (indsByElems1 intEq [2]       [1..]    , [2])
+    , (indsByElems1 intEq [1]       [1, 2, 1], [1])
+    , (indsByElems1 intEq [1,1]     [1, 2, 1], [1])
+    , (indsByElems1 intEq [1,3,2]   [1, 2, 1], [1,2])
+    , (indsByElems1 intEq [1..]     [1, 2, 3], [1, 2, 3])
+    --, (indsByElems1 intEq [1..]     [1, 2, 1], [1, 2]) -- Element not found in infinity keys list (because have been deleted).
+    --, (indsByElems1 intEq [2..]     [1, 2, 3], [1, 2, 3]) -- Element not found in infinity keys list.
+    , (indsByElems intEq []     []      , [])
+    , (indsByElems intEq [1..]  []      , [])
+    , (indsByElems intEq []     [1..]   , [])
+    --, (indsByElems intEq [2,3]        [1..]   , [2,3]) -- Infinity list.
+    , (indsByElems intEq [2,3] [3,2,3,2], [1,2,3,4])
+    , (indsByElems intEq [2,3] [1,2,1,2], [2,4])
+    --, (indsByElems intEq [2..] [1,2]    , [2]) -- Element not found in infinity keys list.
+    , (indsByNotElems intEq []          []       , [])
+    --, (indsByNotElems intEq []          [1..]    , [1..]) -- Entire infinity list is result.
+    , (indsByNotElems intEq [1..]       []       , [])
+    , (indsByNotElems intEq [1..]       [1]      , [])
+    --, (indsByNotElems intEq [2..]     [1]      , []) -- Element not found in infinity keys list.
+    , (indsByNotElems intEq [1]         [1,2,1]  , [2])
+    , (indsByNotElems intEq [1,3]       [1,2,1,4], [2,4])
+    , (indsByNotElems intEq [1,3,4,2]   [1,2,1,4], [])
     ]
 
 testSplitBy :: [([String], [String])]
@@ -239,7 +244,7 @@ lineCont            = foldl f False
 -- Determine whether string ends at unescaped backslash (escape character is
 -- also backslash) and remove trailing backslash sequence.
 hasContinue :: String -> (String, Bool)
-hasContinue xs      = foldr f ([], False) xs
+hasContinue         = foldr f ([], False)
   where
     f :: Char -> (String, Bool) -> (String, Bool)
     f x ([], s)

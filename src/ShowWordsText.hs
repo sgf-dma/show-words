@@ -124,7 +124,7 @@ reorderColumns eq colNames xs@(refs : _)
 -- in error rate decreasing order.
 -- Shuffle (or not) lines.
 reorderLines :: (RandomGen g, Monad m) => g -> [a] -> ReaderT Config m [a]
-reorderLines gen []         = return []
+reorderLines _   []         = return []
 reorderLines gen (x : xs)   = do
     Config {confLineOrder = lineOrder} <- ask
     if lineOrder == "shuffle"

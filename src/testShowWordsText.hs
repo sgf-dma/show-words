@@ -1,5 +1,5 @@
 
-import Control.Applicative
+import Data.Function (on)
 import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.Reader
@@ -8,6 +8,7 @@ import SgfOrderedLine
 import ShowWordsConfig (Config (..))
 import ShowWordsText
 
+main :: IO ()
 main                = print runAll
 
 runAll :: [Bool]
@@ -20,6 +21,7 @@ runAllTests         = all id . runTests
 runTests :: (Eq a) => [(a, a)] -> [Bool]
 runTests            = foldr (\(x, y) z -> (x == y) : z) []
 
+testConf :: Config
 testConf            = Config
                         { confReferenceSep  = " - "
                         , confColumnSep     = " : "
@@ -232,7 +234,7 @@ showWords2 f contents   = runIdentity
     getColEq :: (Monad m) => ReaderT Config m ([String] -> [String] -> Bool)
     getColEq        = do
         Config {confColumnEq = eq} <- ask
-        return (\xs ys -> normalize xs `eq` normalize ys)
+        return (eq `on` normalize)
       where
         normalize   = concatMap dropSpaces
 
