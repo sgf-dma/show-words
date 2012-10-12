@@ -1,0 +1,76 @@
+-- The name of the package.
+name:               show-words
+-- The package version.  See the Haskell package versioning policy (PVP) 
+-- for standards guiding when and how versions should be incremented.
+-- http://www.haskell.org/haskellwiki/Package_versioning_policy
+-- PVP summary:     +-+------- breaking API changes
+--                  | | +----- non-breaking API additions
+--                  | | | +--- code changes with no API change
+version:            2.0.0.0
+Stability:          provisional
+
+-- Constraint on the version of Cabal needed to build this package.
+cabal-version:      >=1.8
+build-type:         Simple
+
+-- An email address to which users can send suggestions, bug reports, and 
+-- patches.
+maintainer:         sgf.dma@gmail.com
+bug-reports:        mailto:sgf.dma@gmail.com
+
+-- The license under which the package is released.
+license:             BSD3
+-- The file containing the license text.
+license-file:       LICENSE
+
+category:           Text
+-- A short (one-line) description of the package.
+synopsis:           Show words from a file by columns.
+-- A longer description of the package.
+-- description:         
+
+extra-source-files: README
+                    Makefile
+                    .gitignore
+--extra-tmp-files: bin ?
+tested-with:        GHC == 7.4.1
+
+
+-- FIXME: This should exported by separate package.
+library
+    exposed-modules:    SgfList
+                        SgfOrderedLine
+    build-depends:      base ==4.5.*
+                        , mtl ==2.1.*
+                        , random ==1.0.*
+    hs-source-dirs:     src
+
+executable show_words
+    main-is:            show_words.hs
+    other-modules:      ShowWords
+                        ShowWordsConfig
+                        ShowWordsText
+                        ShowWordsOutput
+    build-depends:      base == 4.5.*
+                        , utf8-string == 0.3.*
+                        , bytestring == 0.9.*
+                        , mtl == 2.1.*
+                        , random == 1.0.*
+                        , show-words == 2.0.*
+    hs-source-dirs:     src
+
+--executable show_words
+--    main-is:            show_words.hs
+--    other-modules:      SgfList
+--                        , SgfOrderedLine
+--                        , ShowWordsConfig
+--                        , ShowWordsText
+--                        , ShowWordsOutput
+--                        , ShowWords
+--    build-depends:      base == 4.5.*
+--                        , utf8-string == 0.3.*
+--                        , bytestring == 0.9.*
+--                        , mtl == 2.1.*
+--                        , random == 1.0.*
+--    hs-source-dirs:     src
+--

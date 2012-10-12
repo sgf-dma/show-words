@@ -42,6 +42,7 @@ all : $(prog_bin) $(test_bins)
 # (see static pattern rules for details)
 .PHONY: $(prog_bin) $(test_bins)
 $(prog_bin) $(test_bins) : $(build_dir)/% : %.hs
+	mkdir -p $(build_dir)
 	$(GHC) $(ghc_flags) $(include_flags) --make $< -o $@
 
 .PHONY: echo
