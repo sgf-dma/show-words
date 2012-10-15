@@ -1,5 +1,5 @@
 
-import SgfList
+import Sgf.List
 
 main :: IO ()
 main                = print runAll

@@ -4,9 +4,9 @@ import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.Reader
 
-import SgfOrderedLine
-import ShowWordsConfig (Config (..))
-import ShowWordsText
+import Sgf.OrderedLine
+import ShowWords.Config (Config (..))
+import ShowWords.Text
 
 main :: IO ()
 main                = print runAll
