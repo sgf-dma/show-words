@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module SgfList
+module Sgf.List
     ( BState (..)
     , ZipList' (..)
     , Index

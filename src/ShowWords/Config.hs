@@ -1,5 +1,5 @@
 
-module ShowWordsConfig
+module ShowWords.Config
     ( Config (..)
     , defaultConf
     )
@@ -21,6 +21,7 @@ data Config         =
       , confOutputPhraseSep     :: String
       }
 
+-- FIXME: Rename to defaultConfig?
 defaultConf :: Config
 defaultConf         =
     Config

@@ -1,5 +1,5 @@
 
-module ShowWordsText
+module ShowWords.Text
     ( dropSpaces
     , splitToColumns
     , splitToPhrases
@@ -13,9 +13,9 @@ import qualified Data.Foldable as F
 import System.Random (RandomGen)
 import Control.Monad.Reader
 
-import SgfList
-import SgfOrderedLine
-import ShowWordsConfig (Config (..))
+import Sgf.List
+import Sgf.OrderedLine
+import ShowWords.Config (Config (..))
 
 
 -- Drop leading and trailing spaces.

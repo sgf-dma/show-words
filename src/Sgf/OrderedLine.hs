@@ -1,5 +1,5 @@
 
-module SgfOrderedLine
+module Sgf.OrderedLine
     ( Index
     , Line (..)
     , orderList
@@ -19,7 +19,7 @@ import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Control.Applicative
 
-import SgfList (Index, elemByInd, elemsByNotInds, zipMap)
+import Sgf.List (Index, elemByInd, elemsByNotInds, zipMap)
 
 -- FIXME: Tests?
 -- FIXME: With inifity index list orderList will hang on any attempt to

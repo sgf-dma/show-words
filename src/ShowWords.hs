@@ -13,10 +13,10 @@ import System.Random (getStdGen)
 import Data.Function (on)
 import Control.Monad.Reader
 
-import SgfList (listEq)
-import ShowWordsConfig
-import ShowWordsText
-import ShowWordsOutput
+import Sgf.List (listEq)
+import ShowWords.Config
+import ShowWords.Text
+import ShowWords.Output
 
 -- FIXME: v2.1. Use of lines hardcodes, that  line separator is newline. In
 -- other words, newline is special and always line separator, and actually is

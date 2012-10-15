@@ -1,5 +1,5 @@
 
-module ShowWordsOutput
+module ShowWords.Output
     ( putStrF
     , waitKey
     , checkAnswer
@@ -15,9 +15,9 @@ import qualified Data.Foldable as F
 import qualified Data.Traversable as T
 import Control.Monad.Reader
 
-import SgfList (zipMap)
-import SgfOrderedLine
-import ShowWordsConfig (Config (..))
+import Sgf.List (zipMap)
+import Sgf.OrderedLine
+import ShowWords.Config (Config (..))
 
 -- FIXME: Move this to ShowWords ?
 putStrF :: String -> IO ()
