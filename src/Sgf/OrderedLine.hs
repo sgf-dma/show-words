@@ -1,7 +1,6 @@
 
 module Sgf.OrderedLine
-    ( Index
-    , Line (..)
+    ( Line (..)
     , orderList
     , onlyOrdered
     , onlyOthers
