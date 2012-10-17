@@ -1,31 +1,55 @@
-1. Requirments:
-    - old release of haskell-platform (2010.1 or 2010.2 will work) (with
-      ghc-6).
+1. Requirments.
+    - Haskell Platform ..
+    - Terminal with utf8 support.
+    - Terminal font for corresponding utf8 characters.
+
     - File with words must be in utf8 and terminal must support utf8 output.
 
-2. Compile:
+2.1 Build.
 
-If you have GNU make (tested with 3.81), just
+    Run following commands in the project's root folder:
 
-  make
-  
-for compile and
+        $ cabal configure
+        $ cabal build
+        $ cabal copy --destdir=tmp
 
-  make clean
+    On Unix system resulting binary file will be in
 
-for clean. There is no install target. The program is single binary.
+        tmp/$HOME/.cabal/bin/
 
-Otherwise,
+    on Windows Vista or 7 system resulting binary file will be in
+    (%UserProfile% without C:)
 
-    ghc -Wall -outputdir bin -isrc --make src/show_words.hs -o bin/show_words
+	tmp\Users\sgf\AppData\Roaming\cabal\bin
 
-for compile. And 
+    on Windows Xp or earlier system resulting binary will be in
+    (%UserProfile% without C:)
 
-    rm -f bin/*
+        tmp\Documents And Settings\user\Application Data\cabal\bin
 
-for clean.
+2.2. Running on Windows with Japanese and Russian words file.
 
-3. Usage: ./show_words [options..] [column_names]
+    Install ConEmu - terminal emulator - for two reasons:
+        - cmd.exe supports only limited set of monospace fonts and in any way
+          it's much easier to configure font through ConEmu.
+        - cmd.exe does not support Input Method, but ConEmu does.
+
+    Choose <..> Courier New font and uncheck "Monospace" font.
+
+    Second, configure Input Method (not described here).
+    Third, switch cmd.exe to utf8 mode using
+
+        $ chcp 65001
+
+
+3. Words file format.
+
+File consist from logical..
+
+
+4. Outdated words file format.
+
+Usage: ./show_words [options..] [column_names]
 
   Show words (phrases) from file one by one in specified column order and
 check your answers against next word.
