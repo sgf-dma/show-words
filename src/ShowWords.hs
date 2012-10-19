@@ -18,6 +18,10 @@ import ShowWords.Config
 import ShowWords.Text
 import ShowWords.Output
 
+-- FIXME: v3. Use several files at once and mix entries from them based
+-- on tags.
+-- FIXME: v3. Use user-defined hooks for operations like comparing columns,
+-- checking answer and comparing tags.
 -- FIXME: v2.1. Use of lines hardcodes, that  line separator is newline. In
 -- other words, newline is special and always line separator, and actually is
 -- not allowed in neither column nor phrase separator (it is allowed, but

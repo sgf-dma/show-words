@@ -1,8 +1,15 @@
 
+import System.Exit
+
 import Sgf.List
 
 main :: IO ()
-main                = print runAll
+main                = do
+                        let rs = runAll
+                        print rs
+                        if all id rs
+                          then exitSuccess
+                          else exitFailure
 
 runAll :: [Bool]
 runAll              = [ runAllTests testIndex

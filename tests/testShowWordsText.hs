@@ -1,4 +1,5 @@
 
+import System.Exit
 import Data.Function (on)
 import Control.Monad
 import Control.Monad.Identity
@@ -9,7 +10,12 @@ import ShowWords.Config (Config (..))
 import ShowWords.Text
 
 main :: IO ()
-main                = print runAll
+main                = do
+                        let rs = runAll
+                        print rs
+                        if all id rs
+                          then exitSuccess
+                          else exitFailure
 
 runAll :: [Bool]
 runAll              = runAllTests testSplitText
