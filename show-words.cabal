@@ -50,7 +50,7 @@ library
     ghc-options:        -Wall
 
 
-executable show_words
+executable show-words
     main-is:            show-words.hs
     other-modules:      ShowWords
                         ShowWords.Config
