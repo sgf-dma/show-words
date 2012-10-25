@@ -140,12 +140,12 @@ testSplitToColumns =
         ]
       )
     , ( splitToColumns  [" - ", " : "]
-                        [ "a - b - c\\"
+                        [ "a - b - \\"
                         , "d - e - f"
                         , "g : h : i"
                         , "k\\ : l\\ : m\\"
                         ]
-      , [ ["ad", "be", "cf"]
+      , [ ["ad", "be", "f"]
         , ["g", "h", "i"]
         , ["k", "l", "m"]
         ]
