@@ -1,3 +1,7 @@
+!!! This readme is mostly outdated. Requirments now are ghc 7.4, and make have
+been replaced with cabal. Program options and workflow and words file syntax
+are changed as well. New specification doesn't written yet.
+
 1. Requirments:
     - old release of haskell-platform (2010.1 or 2010.2 will work) (with
       ghc-6).
